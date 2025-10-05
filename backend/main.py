@@ -129,13 +129,17 @@ def parse_steps_from_plan(plan_text: str) -> List[Step]:
 
 
 def extract_pddl_actions(plan_text: str) -> List[Step]:
-    """Extract PDDL action blocks from ```pddl or ```lisp code blocks."""
+    """Extract PDDL action blocks from ```pddl or ```lisp code blocks with explanations."""
     steps = []
     step_counter = 1
     lines = plan_text.split('\n')
     
     in_code_block = False
+    code_block_end = -1
+    action_names = []
+    action_contents = {}
     
+    # First pass: Extract all PDDL actions from code blocks
     for i, line in enumerate(lines):
         stripped = line.strip()
         
@@ -143,8 +147,9 @@ def extract_pddl_actions(plan_text: str) -> List[Step]:
         if stripped.startswith('```'):
             if 'pddl' in stripped.lower() or 'lisp' in stripped.lower():
                 in_code_block = True
-            else:
+            elif in_code_block:
                 in_code_block = False
+                code_block_end = i
             continue
         
         if not in_code_block:
@@ -152,39 +157,98 @@ def extract_pddl_actions(plan_text: str) -> List[Step]:
         
         # Look for (:action definitions directly
         if '(:action' in line:
-            # Found an action! Collect it
-            action_lines = []
-            
-            # Look backwards for any comment that might describe this action
-            for j in range(max(0, i-3), i):
-                if lines[j].strip().startswith(';'):
+            # Extract action name (handle both regular and non-breaking hyphens)
+            action_name_match = re.search(r'\(:action\s+([\w\-\u2011]+)', line)
+            if action_name_match:
+                action_name = action_name_match.group(1)
+                action_names.append(action_name)
+                
+                # Found an action! Collect it
+                action_lines = []
+                
+                # Look backwards for any comment that might describe this action
+                for j in range(max(0, i-3), i):
+                    if lines[j].strip().startswith(';'):
+                        action_lines.append(lines[j])
+                
+                # Add the action line itself
+                action_lines.append(line)
+                paren_depth = line.count('(') - line.count(')')
+                
+                # Continue collecting lines until parentheses balance
+                j = i + 1
+                while j < len(lines) and paren_depth > 0:
                     action_lines.append(lines[j])
+                    paren_depth += lines[j].count('(') - lines[j].count(')')
+                    j += 1
+                
+                # Look for explanation comment after the action
+                while j < len(lines) and lines[j].strip().startswith(';'):
+                    action_lines.append(lines[j])
+                    j += 1
+                
+                # Save this action
+                action_text = '\n'.join(action_lines).strip()
+                if action_text:
+                    action_contents[action_name] = action_text
+    
+    # Second pass: Look for explanations after the code block
+    explanations = {}
+    if code_block_end > 0:
+        # Look for the "Explanation of the plan" section
+        for i in range(code_block_end, len(lines)):
+            line = lines[i]
+            # Check for numbered list items that match our action names
+            for action_name in action_names:
+                # Match patterns like "1. **Collect SEC filings**" or "1. Collect SEC filings"
+                # Convert hyphenated action names to match various formats
+                readable_name = action_name.replace('-', ' ').title()
+                
+                patterns = [
+                    rf'\d+\.\s*\*\*.*{re.escape(readable_name)}.*\*\*',
+                    rf'\d+\.\s*{re.escape(readable_name)}',
+                    rf'\d+\.\s*\*\*.*{re.escape(action_name)}.*\*\*',
+                    rf'\d+\.\s*{re.escape(action_name)}'
+                ]
+                
+                for pattern in patterns:
+                    if re.search(pattern, line, re.IGNORECASE):
+                        # Found explanation for this action
+                        explanation_lines = [line]
+                        # Collect the explanation text (usually follows with a dash or colon)
+                        j = i + 1
+                        while j < len(lines):
+                            next_line = lines[j].strip()
+                            # Stop if we hit the next numbered item
+                            if re.match(r'^\d+\.', next_line):
+                                break
+                            # Include lines that are part of the explanation
+                            if next_line.startswith(('–', '-', '*', '•')) or next_line == '' or (j == i + 1):
+                                if next_line:
+                                    explanation_lines.append(lines[j])
+                                j += 1
+                            else:
+                                break
+                        
+                        explanations[action_name] = '\n'.join(explanation_lines)
+                        break
+    
+    # Combine PDDL code with explanations
+    for action_name in action_names:
+        if action_name in action_contents:
+            step_content = action_contents[action_name]
             
-            # Add the action line itself
-            action_lines.append(line)
-            paren_depth = line.count('(') - line.count(')')
+            # Add explanation if available
+            if action_name in explanations:
+                step_content += "\n\n**Explanation:**\n" + explanations[action_name]
             
-            # Continue collecting lines until parentheses balance
-            j = i + 1
-            while j < len(lines) and paren_depth > 0:
-                action_lines.append(lines[j])
-                paren_depth += lines[j].count('(') - lines[j].count(')')
-                j += 1
-            
-            # Look for explanation comment after the action
-            if j < len(lines) and lines[j].strip().startswith(';'):
-                action_lines.append(lines[j])
-            
-            # Save this action as a step
-            action_text = '\n'.join(action_lines).strip()
-            if action_text:
-                steps.append(Step(
-                    step_id=f"step-{step_counter}",
-                    step_number=step_counter,
-                    step_content=action_text,
-                    section="PDDL Actions"
-                ))
-                step_counter += 1
+            steps.append(Step(
+                step_id=f"step-{step_counter}",
+                step_number=step_counter,
+                step_content=step_content,
+                section=f"PDDL Action: {action_name}"
+            ))
+            step_counter += 1
     
     return steps
 
