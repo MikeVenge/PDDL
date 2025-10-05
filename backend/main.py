@@ -129,102 +129,62 @@ def parse_steps_from_plan(plan_text: str) -> List[Step]:
 
 
 def extract_pddl_actions(plan_text: str) -> List[Step]:
-    """Extract PDDL action blocks from ```pddl code blocks."""
+    """Extract PDDL action blocks from ```pddl or ```lisp code blocks."""
     steps = []
     step_counter = 1
     lines = plan_text.split('\n')
     
-    in_pddl_block = False
-    current_action_lines = []
-    in_action_block = False
-    found_action_keyword = False
-    paren_depth = 0
+    in_code_block = False
     
     for i, line in enumerate(lines):
         stripped = line.strip()
         
-        # Track PDDL code blocks
+        # Track code blocks (pddl or lisp)
         if stripped.startswith('```'):
             if 'pddl' in stripped.lower() or 'lisp' in stripped.lower():
-                in_pddl_block = True
+                in_code_block = True
             else:
-                in_pddl_block = False
-                # Save any accumulated action when exiting PDDL block
-                if in_action_block and current_action_lines and found_action_keyword:
-                    action_text = '\n'.join(current_action_lines).strip()
-                    if action_text:
-                        steps.append(Step(
-                            step_id=f"step-{step_counter}",
-                            step_number=step_counter,
-                            step_content=action_text,
-                            section="PDDL Actions"
-                        ))
-                        step_counter += 1
-                current_action_lines = []
-                in_action_block = False
-                found_action_keyword = False
-                paren_depth = 0
+                in_code_block = False
             continue
         
-        if not in_pddl_block:
+        if not in_code_block:
             continue
         
-        # Look for action block start - separator line with "Action:" following
-        if (stripped.startswith(';') and '--' in stripped and 
-            len([c for c in stripped if c == '-']) > 10 and not in_action_block):
-            # Peek ahead for "; Action:"
-            is_action_block = False
-            for j in range(i+1, min(i+5, len(lines))):
-                next_line = lines[j].strip()
-                if next_line and (';Action:' in next_line or '; Action:' in next_line or 
-                                  '; ACTION:' in next_line or ';ACTION:' in next_line):
-                    is_action_block = True
-                    break
-                if next_line and not next_line.startswith(';'):
-                    break
+        # Look for (:action definitions directly
+        if '(:action' in line:
+            # Found an action! Collect it
+            action_lines = []
             
-            if is_action_block:
-                in_action_block = True
-                found_action_keyword = False
-                current_action_lines = [line]
-                paren_depth = 0
-            continue
-        
-        # Collect lines if in action block
-        if in_action_block:
-            current_action_lines.append(line)
+            # Look backwards for any comment that might describe this action
+            for j in range(max(0, i-3), i):
+                if lines[j].strip().startswith(';'):
+                    action_lines.append(lines[j])
             
-            if '(:action' in line or '(:durative-action' in line:
-                found_action_keyword = True
-                paren_depth = line.count('(') - line.count(')')
-            elif found_action_keyword:
-                paren_depth += line.count('(') - line.count(')')
-                
-                if paren_depth == 0:
-                    action_text = '\n'.join(current_action_lines).strip()
-                    if action_text:
-                        steps.append(Step(
-                            step_id=f"step-{step_counter}",
-                            step_number=step_counter,
-                            step_content=action_text,
-                            section="PDDL Actions"
-                        ))
-                        step_counter += 1
-                    
-                    current_action_lines = []
-                    in_action_block = False
-                    found_action_keyword = False
-                    paren_depth = 0
-    
-    if in_action_block and current_action_lines and found_action_keyword:
-        action_text = '\n'.join(current_action_lines).strip()
-        if action_text:
-            steps.append(Step(
-                step_id=f"step-{step_counter}",
-                step_number=step_counter,
-                step_content=action_text,
-                section="PDDL Actions"
-            ))
+            # Add the action line itself
+            action_lines.append(line)
+            paren_depth = line.count('(') - line.count(')')
+            
+            # Continue collecting lines until parentheses balance
+            j = i + 1
+            while j < len(lines) and paren_depth > 0:
+                action_lines.append(lines[j])
+                paren_depth += lines[j].count('(') - lines[j].count(')')
+                j += 1
+            
+            # Look for explanation comment after the action
+            if j < len(lines) and lines[j].strip().startswith(';'):
+                action_lines.append(lines[j])
+            
+            # Save this action as a step
+            action_text = '\n'.join(action_lines).strip()
+            if action_text:
+                steps.append(Step(
+                    step_id=f"step-{step_counter}",
+                    step_number=step_counter,
+                    step_content=action_text,
+                    section="PDDL Actions"
+                ))
+                step_counter += 1
     
     return steps
 
