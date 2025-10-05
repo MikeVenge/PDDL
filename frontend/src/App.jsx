@@ -206,6 +206,24 @@ function App() {
           </div>
         )}
 
+        {/* Display Raw Model Output for Debugging */}
+        {planText && (
+          <section className="model-output-section">
+            <h2>📄 Raw Model Output</h2>
+            <p className="debug-note">
+              This is the raw output from the PDDL model. The steps below are parsed from this text.
+            </p>
+            <div className="model-output-container">
+              <pre className="model-output">{planText}</pre>
+            </div>
+            <div className="metadata-info">
+              <strong>Session ID:</strong> {sessionId?.slice(0, 8)} | 
+              <strong> Steps Parsed:</strong> {steps.length} | 
+              <strong> Tokens:</strong> {metadata.total_tokens}
+            </div>
+          </section>
+        )}
+
         {/* Step 2: Display Plan & Collect Feedback */}
         {steps.length > 0 && (
           <section className="feedback-section">
