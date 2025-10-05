@@ -90,181 +90,79 @@ class SubmitFeedbackResponse(BaseModel):
 def parse_steps_from_plan(plan_text: str) -> List[Step]:
     """
     Parse PDDL plan output into discrete steps.
-    Handles PDDL action definitions, numbered lists, tables, and action sequences.
+    Extracts numbered sections (## 1. Title) as complete steps with ALL their content.
     Based on MIT PDDL BlocksWorld format.
     """
     steps = []
-    step_counter = 1
     
-    # Split into lines for processing
+    # Pattern to match section headers with numbers like "## 1. Pre-Call Preparation" or "## 2. Analysis"
+    section_header_pattern = re.compile(r'^##\s*(\d+)[\.\s️⃣]+(.+?)(?:\s+##|\s*$)')
+    
+    # Split text into lines
     lines = plan_text.split('\n')
-    current_section = None
     
-    # PDDL-specific patterns
-    # Pattern 1: PDDL action definition (e.g., "(:action action-name" or "(:durative-action action-name")
-    pddl_action_start = re.compile(r'^\s*\(:(durative-)?action\s+([a-zA-Z0-9\-_]+)')
-    
-    # Pattern 2: Numbered steps (e.g., "1:", "1.", "Step 1:", "**1.**", etc.)
-    numbered_pattern = re.compile(r'^[\*\s]*(\d+)[\*]*[:\.\)]\s*(.+)$')
-    
-    # Pattern 3: Action in plan format (e.g., "0: (action-name param1 param2)")
-    action_pattern = re.compile(r'^\d+:\s*\(([^)]+)\)\s*;?\s*(.*)$')
-    
-    # Pattern 4: Section headers (including emoji numbers like 1️⃣)
-    section_pattern = re.compile(r'^#+\s*\d*️?⃣?\s*(.+)$')
-    
-    # Pattern 5: Table rows with pipe separators (handles "| **1. Text** | col2 | col3 |")
-    table_row_pattern = re.compile(r'^\|\s*\*?\*?(\d+)[\.\s\*]*([^|]+?)\*?\*?\s*\|([^|]+)\|([^|]+)\|$')
-    
-    # Pattern 6: Bold numbered items like "**1. Identify companies**"
-    bold_numbered_pattern = re.compile(r'^\*\*(\d+)\.\s*([^*]+)\*\*(.*)$')
-    
-    in_code_block = False
-    in_table = False
-    in_pddl_action = False
-    current_step_content = []
-    current_action_name = None
-    action_lines = []
+    current_step_number = None
+    current_step_title = None
+    current_step_lines = []
+    in_current_section = False
     
     for i, line in enumerate(lines):
         stripped = line.strip()
         
-        # Track code blocks
-        if stripped.startswith('```'):
-            in_code_block = not in_code_block
-            # If exiting a code block with PDDL actions, don't reset state yet
-            continue
+        # Check if this line is a numbered section header
+        section_match = section_header_pattern.match(stripped)
         
-        # Skip empty lines outside of content accumulation
-        if not stripped and not current_step_content and not in_pddl_action:
-            continue
-        
-        # Detect section headers
-        section_match = section_pattern.match(stripped)
         if section_match:
-            current_section = section_match.group(1).strip()
-            continue
-        
-        # Detect table separator rows
-        if re.match(r'^\|[\s\-:]+\|', stripped):
-            in_table = True
-            continue
-        
-        # Skip PDDL action definitions in code blocks - we want the workflow table instead
-        # These are technical definitions, not executable steps for humans
-        if in_code_block:
-            continue
-        
-        # Pattern 4: Table rows (like "| **1. Identify** | ... | ... |")
-        table_match = table_row_pattern.match(stripped)
-        if table_match and in_table and not in_code_block:
-            step_num = int(table_match.group(1))
-            step_title = table_match.group(2).strip()
-            col2 = table_match.group(3).strip()
-            col3 = table_match.group(4).strip()
-            
-            # Build comprehensive step content with all information
-            step_parts = []
-            
-            # Title (e.g., "Identify companies")
-            if step_title:
-                step_parts.append(f"**{step_title}**")
-            
-            # What to do / Action (column 2)
-            if col2 and col2 != step_title:
-                step_parts.append(f"\n**What to do:** {col2}")
-            
-            # Why it matters / Description (column 3)
-            if col3:
-                step_parts.append(f"\n**Why it matters:** {col3}")
-            
-            step_text = "\n".join(step_parts)
-            
-            steps.append(Step(
-                step_id=f"step-{step_num}",
-                step_number=step_num,
-                step_content=step_text.strip(),
-                section="Execution Plan"
-            ))
-            step_counter = max(step_counter, step_num + 1)
-            continue
-        
-        # Pattern 5: Bold numbered items
-        bold_match = bold_numbered_pattern.match(stripped)
-        if bold_match and not in_code_block:
-            if current_step_content:
+            # Save previous section as a step
+            if current_step_number is not None and current_step_lines:
+                # Join all lines for this section
+                section_content = '\n'.join(current_step_lines).strip()
+                
                 steps.append(Step(
-                    step_id=f"step-{step_counter - 1}",
-                    step_number=step_counter - 1,
-                    step_content='\n'.join(current_step_content).strip(),
-                    section=current_section
+                    step_id=f"step-{current_step_number}",
+                    step_number=current_step_number,
+                    step_content=f"## {current_step_number}. {current_step_title}\n\n{section_content}",
+                    section=current_step_title
                 ))
-                current_step_content = []
             
-            step_num = int(bold_match.group(1))
-            step_title = bold_match.group(2).strip()
-            step_extra = bold_match.group(3).strip()
-            
-            step_text = step_title
-            if step_extra:
-                step_text += f"\n{step_extra}"
-            
-            current_step_content = [step_text]
-            step_counter = step_num + 1
+            # Start new section
+            current_step_number = int(section_match.group(1))
+            current_step_title = section_match.group(2).strip()
+            current_step_lines = []
+            in_current_section = True
             continue
         
-        # Pattern 1: Regular numbered list items
-        numbered_match = numbered_pattern.match(stripped)
-        if numbered_match and not in_code_block:
-            # Save previous step if exists
-            if current_step_content:
+        # Check if we hit the next section header (without number) which means current section ended
+        if stripped.startswith('##') and not section_header_pattern.match(stripped):
+            # Save current section if exists
+            if current_step_number is not None and current_step_lines:
+                section_content = '\n'.join(current_step_lines).strip()
                 steps.append(Step(
-                    step_id=f"step-{step_counter - 1}",
-                    step_number=step_counter - 1,
-                    step_content='\n'.join(current_step_content).strip(),
-                    section=current_section
+                    step_id=f"step-{current_step_number}",
+                    step_number=current_step_number,
+                    step_content=f"## {current_step_number}. {current_step_title}\n\n{section_content}",
+                    section=current_step_title
                 ))
-                current_step_content = []
-            
-            step_num = int(numbered_match.group(1))
-            step_text = numbered_match.group(2).strip()
-            
-            # Look ahead for continuation lines
-            current_step_content = [step_text]
-            step_counter = step_num + 1
+                # Reset
+                current_step_number = None
+                current_step_title = None
+                current_step_lines = []
+                in_current_section = False
+            continue
         
-        # Pattern 2: Action format
-        elif action_pattern.match(stripped) and not in_code_block:
-            action_match = action_pattern.match(stripped)
-            step_num = int(action_match.group(0).split(':')[0])
-            action_content = action_match.group(1)
-            comment = action_match.group(2)
-            
-            step_text = f"({action_content})"
-            if comment:
-                step_text += f" ; {comment}"
-            
-            steps.append(Step(
-                step_id=f"step-{step_num}",
-                step_number=step_num,
-                step_content=step_text,
-                section=current_section or "Plan"
-            ))
-            step_counter = max(step_counter, step_num + 1)
-        
-        # Accumulate continuation lines for current step
-        elif current_step_content and not table_match and not in_table:
-            # Add continuation only if it's not a new pattern
-            if not (numbered_match or section_match or bold_match):
-                current_step_content.append(stripped)
+        # If we're in a numbered section, accumulate all lines
+        if in_current_section and current_step_number is not None:
+            # Add this line to the current section
+            current_step_lines.append(line.rstrip())
     
-    # Add the last accumulated step
-    if current_step_content:
+    # Don't forget the last section
+    if current_step_number is not None and current_step_lines:
+        section_content = '\n'.join(current_step_lines).strip()
         steps.append(Step(
-            step_id=f"step-{step_counter}",
-            step_number=step_counter,
-            step_content='\n'.join(current_step_content).strip(),
-            section=current_section
+            step_id=f"step-{current_step_number}",
+            step_number=current_step_number,
+            step_content=f"## {current_step_number}. {current_step_title}\n\n{section_content}",
+            section=current_step_title
         ))
     
     return steps
