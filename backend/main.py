@@ -90,79 +90,107 @@ class SubmitFeedbackResponse(BaseModel):
 def parse_steps_from_plan(plan_text: str) -> List[Step]:
     """
     Parse PDDL plan output into discrete steps.
-    Extracts numbered sections (## 1. Title) as complete steps with ALL their content.
+    Extracts complete PDDL action blocks from domain definitions.
+    Each action block includes the comment header, action definition, and explanation.
     Based on MIT PDDL BlocksWorld format.
     """
     steps = []
-    
-    # Pattern to match section headers with numbers like "## 1. Pre-Call Preparation" or "## 2. Analysis"
-    section_header_pattern = re.compile(r'^##\s*(\d+)[\.\s️⃣]+(.+?)(?:\s+##|\s*$)')
+    step_counter = 1
     
     # Split text into lines
     lines = plan_text.split('\n')
     
-    current_step_number = None
-    current_step_title = None
-    current_step_lines = []
-    in_current_section = False
+    # Track if we're inside a pddl code block
+    in_pddl_block = False
+    current_action_lines = []
+    in_action = False
+    paren_depth = 0
     
     for i, line in enumerate(lines):
         stripped = line.strip()
         
-        # Check if this line is a numbered section header
-        section_match = section_header_pattern.match(stripped)
-        
-        if section_match:
-            # Save previous section as a step
-            if current_step_number is not None and current_step_lines:
-                # Join all lines for this section
-                section_content = '\n'.join(current_step_lines).strip()
-                
+        # Track PDDL code blocks
+        if stripped.startswith('```') and ('pddl' in stripped.lower() or 'lisp' in stripped.lower()):
+            in_pddl_block = True
+            continue
+        elif stripped.startswith('```'):
+            in_pddl_block = False
+            # Save any accumulated action
+            if in_action and current_action_lines:
+                action_text = '\n'.join(current_action_lines)
                 steps.append(Step(
-                    step_id=f"step-{current_step_number}",
-                    step_number=current_step_number,
-                    step_content=f"## {current_step_number}. {current_step_title}\n\n{section_content}",
-                    section=current_step_title
+                    step_id=f"step-{step_counter}",
+                    step_number=step_counter,
+                    step_content=action_text,
+                    section="PDDL Actions"
                 ))
+                step_counter += 1
+                current_action_lines = []
+                in_action = False
+                paren_depth = 0
+            continue
+        
+        if not in_pddl_block:
+            continue
+        
+        # Check if this is the start of an action block (look for comment header or action keyword)
+        # Action blocks typically start with a comment header like:
+        # ; ----------------------------------------------------------
+        # ; Action: Download the earnings report
+        # ; ----------------------------------------------------------
+        
+        # If we see a comment line that starts with "; Action:" or just multiple dashes, start collecting
+        if ('; Action:' in line or '; ACTION:' in line or 
+            (line.strip().startswith(';') and '---' in line and not in_action)):
+            # If we were already collecting an action, save it first
+            if in_action and current_action_lines:
+                action_text = '\n'.join(current_action_lines)
+                steps.append(Step(
+                    step_id=f"step-{step_counter}",
+                    step_number=step_counter,
+                    step_content=action_text,
+                    section="PDDL Actions"
+                ))
+                step_counter += 1
             
-            # Start new section
-            current_step_number = int(section_match.group(1))
-            current_step_title = section_match.group(2).strip()
-            current_step_lines = []
-            in_current_section = True
+            # Start new action block
+            in_action = True
+            current_action_lines = [line]
+            paren_depth = 0
             continue
         
-        # Check if we hit the next section header (without number) which means current section ended
-        if stripped.startswith('##') and not section_header_pattern.match(stripped):
-            # Save current section if exists
-            if current_step_number is not None and current_step_lines:
-                section_content = '\n'.join(current_step_lines).strip()
+        # If we're collecting an action block, add lines and track parentheses
+        if in_action:
+            current_action_lines.append(line)
+            
+            # Count parentheses to know when action definition is complete
+            if '(:action' in line or '(:durative-action' in line:
+                paren_depth = 1
+            else:
+                paren_depth += line.count('(') - line.count(')')
+            
+            # When parentheses are balanced and we've seen the action keyword, action is complete
+            if paren_depth == 0 and len(current_action_lines) > 3:
+                action_text = '\n'.join(current_action_lines)
                 steps.append(Step(
-                    step_id=f"step-{current_step_number}",
-                    step_number=current_step_number,
-                    step_content=f"## {current_step_number}. {current_step_title}\n\n{section_content}",
-                    section=current_step_title
+                    step_id=f"step-{step_counter}",
+                    step_number=step_counter,
+                    step_content=action_text,
+                    section="PDDL Actions"
                 ))
-                # Reset
-                current_step_number = None
-                current_step_title = None
-                current_step_lines = []
-                in_current_section = False
-            continue
-        
-        # If we're in a numbered section, accumulate all lines
-        if in_current_section and current_step_number is not None:
-            # Add this line to the current section
-            current_step_lines.append(line.rstrip())
+                step_counter += 1
+                current_action_lines = []
+                in_action = False
+                paren_depth = 0
     
-    # Don't forget the last section
-    if current_step_number is not None and current_step_lines:
-        section_content = '\n'.join(current_step_lines).strip()
+    # Handle any remaining action
+    if in_action and current_action_lines:
+        action_text = '\n'.join(current_action_lines)
         steps.append(Step(
-            step_id=f"step-{current_step_number}",
-            step_number=current_step_number,
-            step_content=f"## {current_step_number}. {current_step_title}\n\n{section_content}",
-            section=current_step_title
+            step_id=f"step-{step_counter}",
+            step_number=step_counter,
+            step_content=action_text,
+            section="PDDL Actions"
         ))
     
     return steps
