@@ -90,108 +90,235 @@ class SubmitFeedbackResponse(BaseModel):
 def parse_steps_from_plan(plan_text: str) -> List[Step]:
     """
     Parse PDDL plan output into discrete steps.
-    Extracts complete PDDL action blocks from domain definitions.
-    Each action block includes the comment header, action definition, and explanation.
-    Based on MIT PDDL BlocksWorld format.
+    Handles multiple formats:
+    1. PDDL action blocks with ; Action: headers
+    2. Numbered sections (## 1. Title)
+    3. Table rows with steps
+    4. Simple numbered lists
     """
     steps = []
     step_counter = 1
     
-    # Split text into lines
+    # Try Strategy 1: Extract PDDL action blocks from code blocks
+    pddl_actions = extract_pddl_actions(plan_text)
+    if pddl_actions:
+        return pddl_actions
+    
+    # Try Strategy 2: Extract numbered sections (## N.)
+    numbered_sections = extract_numbered_sections(plan_text)
+    if numbered_sections:
+        return numbered_sections
+    
+    # Try Strategy 3: Extract from workflow tables
+    table_steps = extract_table_steps(plan_text)
+    if table_steps:
+        return table_steps
+    
+    # Try Strategy 4: Simple numbered list extraction
+    numbered_list = extract_numbered_list(plan_text)
+    if numbered_list:
+        return numbered_list
+    
+    # Fallback: Return the whole text as one step
+    return [Step(
+        step_id="step-1",
+        step_number=1,
+        step_content=plan_text,
+        section="Complete Plan"
+    )]
+
+
+def extract_pddl_actions(plan_text: str) -> List[Step]:
+    """Extract PDDL action blocks from ```pddl code blocks."""
+    steps = []
+    step_counter = 1
     lines = plan_text.split('\n')
     
-    # Track if we're inside a pddl code block
     in_pddl_block = False
     current_action_lines = []
-    in_action = False
+    in_action_block = False
+    found_action_keyword = False
     paren_depth = 0
     
     for i, line in enumerate(lines):
         stripped = line.strip()
         
         # Track PDDL code blocks
-        if stripped.startswith('```') and ('pddl' in stripped.lower() or 'lisp' in stripped.lower()):
-            in_pddl_block = True
-            continue
-        elif stripped.startswith('```'):
-            in_pddl_block = False
-            # Save any accumulated action
-            if in_action and current_action_lines:
-                action_text = '\n'.join(current_action_lines)
-                steps.append(Step(
-                    step_id=f"step-{step_counter}",
-                    step_number=step_counter,
-                    step_content=action_text,
-                    section="PDDL Actions"
-                ))
-                step_counter += 1
+        if stripped.startswith('```'):
+            if 'pddl' in stripped.lower() or 'lisp' in stripped.lower():
+                in_pddl_block = True
+            else:
+                in_pddl_block = False
+                # Save any accumulated action when exiting PDDL block
+                if in_action_block and current_action_lines and found_action_keyword:
+                    action_text = '\n'.join(current_action_lines).strip()
+                    if action_text:
+                        steps.append(Step(
+                            step_id=f"step-{step_counter}",
+                            step_number=step_counter,
+                            step_content=action_text,
+                            section="PDDL Actions"
+                        ))
+                        step_counter += 1
                 current_action_lines = []
-                in_action = False
+                in_action_block = False
+                found_action_keyword = False
                 paren_depth = 0
             continue
         
         if not in_pddl_block:
             continue
         
-        # Check if this is the start of an action block (look for comment header or action keyword)
-        # Action blocks typically start with a comment header like:
-        # ; ----------------------------------------------------------
-        # ; Action: Download the earnings report
-        # ; ----------------------------------------------------------
-        
-        # If we see a comment line that starts with "; Action:" or just multiple dashes, start collecting
-        if ('; Action:' in line or '; ACTION:' in line or 
-            (line.strip().startswith(';') and '---' in line and not in_action)):
-            # If we were already collecting an action, save it first
-            if in_action and current_action_lines:
-                action_text = '\n'.join(current_action_lines)
-                steps.append(Step(
-                    step_id=f"step-{step_counter}",
-                    step_number=step_counter,
-                    step_content=action_text,
-                    section="PDDL Actions"
-                ))
-                step_counter += 1
+        # Look for action block start - separator line with "Action:" following
+        if (stripped.startswith(';') and '--' in stripped and 
+            len([c for c in stripped if c == '-']) > 10 and not in_action_block):
+            # Peek ahead for "; Action:"
+            is_action_block = False
+            for j in range(i+1, min(i+5, len(lines))):
+                next_line = lines[j].strip()
+                if next_line and (';Action:' in next_line or '; Action:' in next_line or 
+                                  '; ACTION:' in next_line or ';ACTION:' in next_line):
+                    is_action_block = True
+                    break
+                if next_line and not next_line.startswith(';'):
+                    break
             
-            # Start new action block
-            in_action = True
-            current_action_lines = [line]
-            paren_depth = 0
+            if is_action_block:
+                in_action_block = True
+                found_action_keyword = False
+                current_action_lines = [line]
+                paren_depth = 0
             continue
         
-        # If we're collecting an action block, add lines and track parentheses
-        if in_action:
+        # Collect lines if in action block
+        if in_action_block:
             current_action_lines.append(line)
             
-            # Count parentheses to know when action definition is complete
             if '(:action' in line or '(:durative-action' in line:
-                paren_depth = 1
-            else:
+                found_action_keyword = True
+                paren_depth = line.count('(') - line.count(')')
+            elif found_action_keyword:
                 paren_depth += line.count('(') - line.count(')')
-            
-            # When parentheses are balanced and we've seen the action keyword, action is complete
-            if paren_depth == 0 and len(current_action_lines) > 3:
-                action_text = '\n'.join(current_action_lines)
-                steps.append(Step(
-                    step_id=f"step-{step_counter}",
-                    step_number=step_counter,
-                    step_content=action_text,
-                    section="PDDL Actions"
-                ))
-                step_counter += 1
-                current_action_lines = []
-                in_action = False
-                paren_depth = 0
+                
+                if paren_depth == 0:
+                    action_text = '\n'.join(current_action_lines).strip()
+                    if action_text:
+                        steps.append(Step(
+                            step_id=f"step-{step_counter}",
+                            step_number=step_counter,
+                            step_content=action_text,
+                            section="PDDL Actions"
+                        ))
+                        step_counter += 1
+                    
+                    current_action_lines = []
+                    in_action_block = False
+                    found_action_keyword = False
+                    paren_depth = 0
     
-    # Handle any remaining action
-    if in_action and current_action_lines:
-        action_text = '\n'.join(current_action_lines)
+    if in_action_block and current_action_lines and found_action_keyword:
+        action_text = '\n'.join(current_action_lines).strip()
+        if action_text:
+            steps.append(Step(
+                step_id=f"step-{step_counter}",
+                step_number=step_counter,
+                step_content=action_text,
+                section="PDDL Actions"
+            ))
+    
+    return steps
+
+
+def extract_numbered_sections(plan_text: str) -> List[Step]:
+    """Extract complete numbered sections like ## 1. Title."""
+    steps = []
+    section_pattern = re.compile(r'^##\s*(\d+)[\.\s️⃣]+(.+)$')
+    lines = plan_text.split('\n')
+    
+    current_num = None
+    current_title = None
+    current_lines = []
+    
+    for line in lines:
+        stripped = line.strip()
+        match = section_pattern.match(stripped)
+        
+        if match:
+            if current_num and current_lines:
+                content = '\n'.join(current_lines).strip()
+                steps.append(Step(
+                    step_id=f"step-{current_num}",
+                    step_number=current_num,
+                    step_content=f"## {current_num}. {current_title}\n\n{content}",
+                    section=current_title
+                ))
+            
+            current_num = int(match.group(1))
+            current_title = match.group(2).strip()
+            current_lines = []
+        elif current_num and not (stripped.startswith('##') and not match):
+            current_lines.append(line.rstrip())
+    
+    if current_num and current_lines:
+        content = '\n'.join(current_lines).strip()
         steps.append(Step(
-            step_id=f"step-{step_counter}",
-            step_number=step_counter,
-            step_content=action_text,
-            section="PDDL Actions"
+            step_id=f"step-{current_num}",
+            step_number=current_num,
+            step_content=f"## {current_num}. {current_title}\n\n{content}",
+            section=current_title
         ))
+    
+    return steps
+
+
+def extract_table_steps(plan_text: str) -> List[Step]:
+    """Extract steps from markdown tables."""
+    steps = []
+    table_row = re.compile(r'^\|\s*\*?\*?(\d+)[\.\s\*]*([^|]+?)\*?\*?\s*\|([^|]+)\|([^|]+)\|$')
+    lines = plan_text.split('\n')
+    in_table = False
+    
+    for line in lines:
+        if re.match(r'^\|[\s\-:]+\|', line.strip()):
+            in_table = True
+            continue
+        
+        if in_table:
+            match = table_row.match(line)
+            if match:
+                num = int(match.group(1))
+                title = match.group(2).strip()
+                col2 = match.group(3).strip()
+                col3 = match.group(4).strip()
+                
+                content = f"**{title}**\n\n**What to do:** {col2}\n\n**Why it matters:** {col3}"
+                steps.append(Step(
+                    step_id=f"step-{num}",
+                    step_number=num,
+                    step_content=content,
+                    section="Workflow"
+                ))
+    
+    return steps
+
+
+def extract_numbered_list(plan_text: str) -> List[Step]:
+    """Extract simple numbered list items."""
+    steps = []
+    numbered = re.compile(r'^(\d+)[\.\:\)]\s+(.+)$')
+    lines = plan_text.split('\n')
+    
+    for line in lines:
+        match = numbered.match(line.strip())
+        if match:
+            num = int(match.group(1))
+            content = match.group(2).strip()
+            steps.append(Step(
+                step_id=f"step-{num}",
+                step_number=num,
+                step_content=content,
+                section="Steps"
+            ))
     
     return steps
 
