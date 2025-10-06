@@ -13,6 +13,18 @@ import json
 import re
 from datetime import datetime
 import uuid
+import logging
+import sys
+
+# Configure logging for Railway
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="PDDL RLHF API", version="1.0.0")
 
@@ -28,16 +40,15 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """Initialize the application on startup."""
-    import sys
-    print("=" * 60, file=sys.stderr)
-    print("🚀 PDDL RLHF API starting up...", file=sys.stderr)
-    print(f"📁 Working directory: {os.getcwd()}", file=sys.stderr)
-    print(f"📁 Training data directory: {os.path.join(os.getcwd(), 'training_data')}", file=sys.stderr)
-    print(f"🔑 API Key configured: {'Yes' if API_KEY else 'No'}", file=sys.stderr)
-    print(f"🤖 Model: {MODEL}", file=sys.stderr)
-    print(f"🌐 PORT: {os.getenv('PORT', 'not set')}", file=sys.stderr)
-    print("✅ Startup complete!", file=sys.stderr)
-    print("=" * 60, file=sys.stderr)
+    logger.info("=" * 60)
+    logger.info("🚀 PDDL RLHF API starting up...")
+    logger.info(f"📁 Working directory: {os.getcwd()}")
+    logger.info(f"📁 Training data directory: {os.path.join(os.getcwd(), 'training_data')}")
+    logger.info(f"🔑 API Key configured: {'Yes' if API_KEY else 'No'}")
+    logger.info(f"🤖 Model: {MODEL}")
+    logger.info(f"🌐 PORT: {os.getenv('PORT', 'not set')}")
+    logger.info("✅ Startup complete!")
+    logger.info("=" * 60)
 
 # Configuration
 API_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
@@ -175,9 +186,9 @@ TRAINING_DATA_DIR = "training_data"
 # Ensure training data directory exists (will be created on startup)
 try:
     os.makedirs(TRAINING_DATA_DIR, exist_ok=True)
-    print(f"✓ Training data directory ready: {os.path.abspath(TRAINING_DATA_DIR)}")
+    logger.info(f"✓ Training data directory ready: {os.path.abspath(TRAINING_DATA_DIR)}")
 except Exception as e:
-    print(f"⚠ Warning: Could not create training data directory: {e}")
+    logger.warning(f"⚠ Warning: Could not create training data directory: {e}")
 
 
 # Request/Response Models
@@ -620,6 +631,10 @@ def extract_pddl_portion(text: str) -> str:
 
 def call_pddl_model(prompt: str, temperature: float, max_tokens: int) -> Dict[str, Any]:
     """Call the PDDL model API."""
+    logger.info(f"📡 Calling PDDL model: {MODEL}")
+    logger.info(f"   Temperature: {temperature}, Max tokens: {max_tokens}")
+    logger.info(f"   Prompt length: {len(prompt)} chars")
+    
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json"
@@ -642,10 +657,21 @@ def call_pddl_model(prompt: str, temperature: float, max_tokens: int) -> Dict[st
     }
     
     try:
+        logger.info(f"🌐 Sending request to Fireworks AI...")
         response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
         response.raise_for_status()
-        return response.json()
+        result = response.json()
+        
+        # Log response stats
+        usage = result.get('usage', {})
+        logger.info(f"✅ Model response received")
+        logger.info(f"   Prompt tokens: {usage.get('prompt_tokens', 'N/A')}")
+        logger.info(f"   Completion tokens: {usage.get('completion_tokens', 'N/A')}")
+        logger.info(f"   Total tokens: {usage.get('total_tokens', 'N/A')}")
+        
+        return result
     except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Error calling PDDL model: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error calling PDDL model: {str(e)}")
 
 
@@ -809,6 +835,7 @@ def generate_rlhf_dataset(
 @app.get("/")
 async def root():
     """Health check endpoint."""
+    logger.info("🏥 Health check requested")
     return {
         "status": "online",
         "service": "PDDL RLHF API",
@@ -825,21 +852,27 @@ async def generate_plan(request: GeneratePlanRequest):
     try:
         # Generate session ID
         session_id = str(uuid.uuid4())
+        logger.info(f"📝 New plan request - Session: {session_id[:8]}...")
+        logger.info(f"   User prompt: {request.prompt[:100]}...")
         
         # Prefix user prompt to frame it as a planning problem
         formatted_prompt = format_as_planning_problem(request.prompt)
+        logger.info(f"   Formatted prompt: {formatted_prompt[:100]}...")
         
         # Call PDDL model
         response = call_pddl_model(formatted_prompt, request.temperature, request.max_tokens)
         
         # Extract plan text
         raw_output = response['choices'][0]['message']['content']
+        logger.info(f"📄 Raw output length: {len(raw_output)} chars")
         
         # Extract PDDL portion from the output
         pddl_output = extract_pddl_portion(raw_output)
+        logger.info(f"📋 PDDL portion length: {len(pddl_output)} chars")
         
         # Parse into steps
         steps = parse_steps_from_plan(pddl_output)
+        logger.info(f"🔢 Parsed {len(steps)} steps from plan")
         
         # Prepare metadata
         metadata = {
@@ -850,6 +883,8 @@ async def generate_plan(request: GeneratePlanRequest):
             "total_tokens": response.get('usage', {}).get('total_tokens'),
             "timestamp": datetime.utcnow().isoformat() + "Z"
         }
+        
+        logger.info(f"✅ Plan generation complete - Session: {session_id[:8]}")
         
         return GeneratePlanResponse(
             session_id=session_id,
@@ -872,6 +907,9 @@ async def submit_feedback(request: SubmitFeedbackRequest):
     Saves the dataset to disk.
     """
     try:
+        logger.info(f"💬 Feedback submission - Session: {request.session_id[:8]}...")
+        logger.info(f"   Feedback items: {len(request.feedback)}")
+        
         # Generate RLHF dataset
         dataset = generate_rlhf_dataset(
             request.session_id,
@@ -886,8 +924,11 @@ async def submit_feedback(request: SubmitFeedbackRequest):
         filename = f"rlhf_session_{timestamp}_{request.session_id[:8]}.json"
         file_path = os.path.join(TRAINING_DATA_DIR, filename)
         
+        logger.info(f"💾 Saving dataset to: {filename}")
         with open(file_path, 'w') as f:
             json.dump(dataset, f, indent=2)
+        
+        logger.info(f"✅ Feedback saved successfully")
         
         return SubmitFeedbackResponse(
             success=True,
