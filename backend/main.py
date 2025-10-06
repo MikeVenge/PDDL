@@ -28,11 +28,16 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """Initialize the application on startup."""
-    print("🚀 PDDL RLHF API starting up...")
-    print(f"📁 Training data directory: {os.path.join(os.getcwd(), 'training_data')}")
-    print(f"🔑 API Key configured: {'Yes' if API_KEY else 'No'}")
-    print(f"🤖 Model: {MODEL}")
-    print("✅ Startup complete!")
+    import sys
+    print("=" * 60, file=sys.stderr)
+    print("🚀 PDDL RLHF API starting up...", file=sys.stderr)
+    print(f"📁 Working directory: {os.getcwd()}", file=sys.stderr)
+    print(f"📁 Training data directory: {os.path.join(os.getcwd(), 'training_data')}", file=sys.stderr)
+    print(f"🔑 API Key configured: {'Yes' if API_KEY else 'No'}", file=sys.stderr)
+    print(f"🤖 Model: {MODEL}", file=sys.stderr)
+    print(f"🌐 PORT: {os.getenv('PORT', 'not set')}", file=sys.stderr)
+    print("✅ Startup complete!", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
 
 # Configuration
 API_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
@@ -167,8 +172,12 @@ Comments must not reveal inner monologue—only verifiable facts, assumptions, a
 Do not output any text outside PDDL and ; comments."""
 TRAINING_DATA_DIR = "training_data"
 
-# Ensure training data directory exists
-os.makedirs(TRAINING_DATA_DIR, exist_ok=True)
+# Ensure training data directory exists (will be created on startup)
+try:
+    os.makedirs(TRAINING_DATA_DIR, exist_ok=True)
+    print(f"✓ Training data directory ready: {os.path.abspath(TRAINING_DATA_DIR)}")
+except Exception as e:
+    print(f"⚠ Warning: Could not create training data directory: {e}")
 
 
 # Request/Response Models
