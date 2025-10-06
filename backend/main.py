@@ -385,14 +385,14 @@ def extract_pddl_actions(plan_text: str) -> List[Step]:
                 j += 1
             
             # Look for explanation comment after the action
-                while j < len(lines) and lines[j].strip().startswith(';'):
+            while j < len(lines) and lines[j].strip().startswith(';'):
                 action_lines.append(lines[j])
-                    j += 1
+                j += 1
             
-                # Save this action
+            # Save this action
             action_text = '\n'.join(action_lines).strip()
             if action_text:
-                    action_contents[action_name] = action_text
+                action_contents[action_name] = action_text
     
     # Second pass: Look for explanations after the code block
     explanations = {}
