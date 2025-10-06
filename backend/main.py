@@ -25,6 +25,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def startup_event():
+    """Initialize the application on startup."""
+    print("🚀 PDDL RLHF API starting up...")
+    print(f"📁 Training data directory: {os.path.join(os.getcwd(), 'training_data')}")
+    print(f"🔑 API Key configured: {'Yes' if API_KEY else 'No'}")
+    print(f"🤖 Model: {MODEL}")
+    print("✅ Startup complete!")
+
 # Configuration
 API_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
 API_KEY = os.getenv("FIREWORKS_API_KEY", "fw_3ZHFp8ZR5WeoadXcFcjEKY4z")
