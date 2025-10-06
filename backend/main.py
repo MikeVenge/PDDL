@@ -39,7 +39,7 @@ os.makedirs(TRAINING_DATA_DIR, exist_ok=True)
 # Request/Response Models
 class GeneratePlanRequest(BaseModel):
     prompt: str = Field(..., min_length=10, max_length=5000)
-    temperature: float = Field(0.5, ge=0.0, le=1.0)
+    temperature: float = Field(0.2, ge=0.0, le=1.0)
     max_tokens: int = Field(10000, ge=1000, le=20000)
 
 

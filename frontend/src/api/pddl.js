@@ -18,7 +18,7 @@ const api = axios.create({
 /**
  * Generate a PDDL plan from a prompt
  */
-export const generatePlan = async (prompt, temperature = 0.5, maxTokens = 10000) => {
+export const generatePlan = async (prompt, temperature = 0.2, maxTokens = 10000) => {
   try {
     const response = await api.post('/api/generate-plan', {
       prompt,

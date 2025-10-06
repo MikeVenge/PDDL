@@ -7,7 +7,7 @@ import DatasetDisplay from './components/DatasetDisplay';
 function App() {
   // State management
   const [prompt, setPrompt] = useState('');
-  const [temperature, setTemperature] = useState(0.5);
+  const [temperature, setTemperature] = useState(0.2);
   const [maxTokens, setMaxTokens] = useState(10000);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
