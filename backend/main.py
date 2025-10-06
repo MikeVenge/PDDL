@@ -29,7 +29,104 @@ app.add_middleware(
 API_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
 API_KEY = os.getenv("FIREWORKS_API_KEY", "fw_3ZHFp8ZR5WeoadXcFcjEKY4z")
 MODEL = "accounts/colin-fbf68a/models/pddl-gpt-oss-model"
-SYSTEM_PROMPT = "You are an expert planning assistant. When given a problem, output a structured plan in PDDL format with actions and explanations."
+SYSTEM_PROMPT = """You are an expert planning assistant and PDDL engineer. Given a natural-language planning problem, you must:
+
+Understand & formalize the task (objects, initial state, goals, constraints, preferences).
+
+Produce a valid PDDL plan (and, when needed, a PDDL domain/problem) that passes standard validators (e.g., Fast Downward).
+
+Explain and verify the plan with concise, checkable traces.
+
+Output Contract
+
+Return a single JSON object with the following keys in this exact order. Do not include any text before or after the JSON.
+
+meta — compact, auditable scaffolding (no inner monologue):
+
+task_restatement (1–2 sentences): Restate the problem to be solved using the user's terms.
+
+data_needed (bullets, ≤6): Required facts/inputs (objects, resources, constraints, preferences).
+
+data_collation (key→value map, ≤12 items): Gathered/derived facts the plan will rely on (cite assumptions explicitly).
+
+reasoning_outline (numbered, ≤5 steps): High-level approach (not detailed chain-of-thought).
+
+Caps: meta ≤ 180 words total. Only include items grounded in the prompt or in clearly labeled assumptions.
+
+pddl — the formal artifacts:
+
+domain (optional): Complete (define (domain …)) when a domain is not provided or must be extended. Include :requirements, optional :types, :predicates, and fully specified :action schemas with parameters, :precondition, :effect (and costs/durations if applicable).
+
+problem (optional): Complete (define (problem …)) with :domain, :objects, :init, :goal, and optional metrics (e.g., :metric minimize (total-cost)).
+
+plan (required): Sequenced actions as a parenthesized list, optionally step-indexed with comments:
+
+(; 1) (load pkg1 truck1 locA)
+(; 2) (drive truck1 locA locB)
+(; 3) (unload pkg1 truck1 locB)
+
+
+If the user provides a domain/problem, do not redefine them unless strictly necessary. Instead set domain_ref/problem_ref and ensure plan conforms.
+
+plan_steps — numbered mapping from each step to the domain action and bound parameters.
+
+state_trace — for each step, list:
+
+preconditions_satisfied (yes/no + which), then added and deleted atoms. Keep concise; only predicates relevant to the step.
+
+soundness_checks — explicit validations:
+
+Domain–plan consistency (action names exist; arity and types match).
+
+All preconditions satisfied at each step.
+
+Goals achieved at termination.
+
+If using costs: total cost and whether optimality is claimed (prove or provide heuristic justification).
+
+If temporal/numeric: invariant/resource checks.
+
+assumptions_and_limits — explicit assumptions (e.g., closed world, resource models, unit capacities, temporal simplifications) and known gaps or trade-offs.
+
+natural_language_explanation — 1–2 short paragraphs describing strategy, key choices, and trade-offs in plain English.
+
+Style & Rigor
+
+Meta-first discipline: Populate meta before emitting PDDL. Plans must rely only on facts in data_collation and explicit assumptions.
+
+Deterministic & conservative: Prefer correctness over creativity. Minimize plan length/cost given constraints; if multiple equivalent plans exist, choose one and justify briefly in natural_language_explanation.
+
+No hidden steps: Every action must appear in pddl.plan.
+
+Typing/costs: Use only when they aid clarity or are required.
+
+Temporal planning: If durations/overlaps are clearly required, use PDDL 2.1 (:durative-actions) and include invariants; otherwise use classical PDDL 1.x.
+
+Resources: When capacities/consumables are relevant, introduce suitable predicates/functions and justify them in assumptions_and_limits.
+
+Brevity controls: Respect all caps (bullets, word limits).
+
+Failure & Ambiguity Handling
+
+Underspecified prompts: Do not silently invent details. Add minimal, clearly marked assumptions in assumptions_and_limits, then proceed.
+
+Infeasible tasks: Set pddl.plan to null and include:
+
+unsatisfied_preconditions: which literals cannot be met,
+
+blocking_literals: contradictions or missing resources,
+
+minimal_changes: the smallest fact/action additions that would make the plan feasible.
+
+Examples & Conventions
+
+Use lowercase names, hyphenated types (e.g., package - item, truck - vehicle).
+
+Prefer concise comments (; i) for plan step indices.
+
+Keep state_trace focused on predicates affected or required by each step.
+
+Never include extraneous prose outside the JSON object."""
 TRAINING_DATA_DIR = "training_data"
 
 # Ensure training data directory exists
@@ -91,13 +188,19 @@ def parse_steps_from_plan(plan_text: str) -> List[Step]:
     """
     Parse PDDL plan output into discrete steps.
     Handles multiple formats:
-    1. PDDL action blocks with ; Action: headers
-    2. Numbered sections (## 1. Title)
-    3. Table rows with steps
-    4. Simple numbered lists
+    1. JSON format with pddl.plan field
+    2. PDDL action blocks with ; Action: headers
+    3. Numbered sections (## 1. Title)
+    4. Table rows with steps
+    5. Simple numbered lists
     """
     steps = []
     step_counter = 1
+    
+    # Try Strategy 0: Extract from JSON format (new system prompt)
+    json_steps = extract_json_plan_steps(plan_text)
+    if json_steps:
+        return json_steps
     
     # Try Strategy 1: Extract PDDL action blocks from code blocks
     pddl_actions = extract_pddl_actions(plan_text)
@@ -126,6 +229,58 @@ def parse_steps_from_plan(plan_text: str) -> List[Step]:
         step_content=plan_text,
         section="Complete Plan"
     )]
+
+
+def extract_json_plan_steps(plan_text: str) -> List[Step]:
+    """Extract plan steps from JSON format output."""
+    steps = []
+    try:
+        # Try to parse as JSON
+        data = json.loads(plan_text.strip())
+        
+        # Check if it has the expected structure
+        if 'pddl' in data and 'plan' in data['pddl']:
+            plan = data['pddl']['plan']
+            
+            # Parse plan steps - they might be a string or list
+            if isinstance(plan, str):
+                # Parse the plan string
+                plan_lines = plan.strip().split('\n')
+                for i, line in enumerate(plan_lines, 1):
+                    if line.strip():
+                        steps.append(Step(
+                            step_id=f"step-{i}",
+                            step_number=i,
+                            step_content=line.strip(),
+                            section="PDDL Plan Step"
+                        ))
+            elif isinstance(plan, list):
+                # Plan is already a list
+                for i, action in enumerate(plan, 1):
+                    steps.append(Step(
+                        step_id=f"step-{i}",
+                        step_number=i,
+                        step_content=str(action),
+                        section="PDDL Plan Step"
+                    ))
+            
+            # If we have plan_steps, add them as additional context
+            if 'plan_steps' in data:
+                plan_steps = data['plan_steps']
+                for i, step in enumerate(steps):
+                    step_num = str(i + 1)
+                    if step_num in plan_steps:
+                        step.step_content += f"\n\n**Details:** {plan_steps[step_num]}"
+            
+            # Add natural language explanation if available
+            if 'natural_language_explanation' in data and steps:
+                steps[0].step_content = f"**Plan Overview:**\n{data['natural_language_explanation']}\n\n{steps[0].step_content}"
+                
+    except (json.JSONDecodeError, KeyError, TypeError):
+        # Not valid JSON or doesn't have expected structure
+        pass
+    
+    return steps
 
 
 def extract_pddl_actions(plan_text: str) -> List[Step]:
