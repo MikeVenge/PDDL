@@ -258,8 +258,8 @@ footer {
   font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
   font-size: 0.85rem;
   line-height: 1.6;
-  white-space: pre-wrap;
-  word-wrap: break-word;
+  white-space: pre;
+  overflow-x: auto;
 }
 
 .model-output-container::-webkit-scrollbar {

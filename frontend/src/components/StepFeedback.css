@@ -54,6 +54,7 @@
   border-radius: 6px;
   margin-bottom: 1rem;
   border-left: 4px solid #667eea;
+  overflow-x: auto;
 }
 
 .step-content pre {
@@ -61,8 +62,8 @@
   font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
   font-size: 0.9rem;
   line-height: 1.6;
-  white-space: pre-wrap;
-  word-wrap: break-word;
+  white-space: pre;
+  overflow-x: auto;
   color: #1f2937;
 }
 
