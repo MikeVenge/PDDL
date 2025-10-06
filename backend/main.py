@@ -347,33 +347,33 @@ def extract_pddl_actions(plan_text: str) -> List[Step]:
                 action_name = action_name_match.group(1)
                 action_names.append(action_name)
                 
-                # Found an action! Collect it
-                action_lines = []
-                
-                # Look backwards for any comment that might describe this action
-                for j in range(max(0, i-3), i):
-                    if lines[j].strip().startswith(';'):
-                        action_lines.append(lines[j])
-                
-                # Add the action line itself
-                action_lines.append(line)
-                paren_depth = line.count('(') - line.count(')')
-                
-                # Continue collecting lines until parentheses balance
-                j = i + 1
-                while j < len(lines) and paren_depth > 0:
+            # Found an action! Collect it
+            action_lines = []
+            
+            # Look backwards for any comment that might describe this action
+            for j in range(max(0, i-3), i):
+                if lines[j].strip().startswith(';'):
                     action_lines.append(lines[j])
-                    paren_depth += lines[j].count('(') - lines[j].count(')')
-                    j += 1
-                
-                # Look for explanation comment after the action
+            
+            # Add the action line itself
+            action_lines.append(line)
+            paren_depth = line.count('(') - line.count(')')
+            
+            # Continue collecting lines until parentheses balance
+            j = i + 1
+            while j < len(lines) and paren_depth > 0:
+                action_lines.append(lines[j])
+                paren_depth += lines[j].count('(') - lines[j].count(')')
+                j += 1
+            
+            # Look for explanation comment after the action
                 while j < len(lines) and lines[j].strip().startswith(';'):
-                    action_lines.append(lines[j])
+                action_lines.append(lines[j])
                     j += 1
-                
+            
                 # Save this action
-                action_text = '\n'.join(action_lines).strip()
-                if action_text:
+            action_text = '\n'.join(action_lines).strip()
+            if action_text:
                     action_contents[action_name] = action_text
     
     # Second pass: Look for explanations after the code block
@@ -426,13 +426,13 @@ def extract_pddl_actions(plan_text: str) -> List[Step]:
             if action_name in explanations:
                 step_content += "\n\n**Explanation:**\n" + explanations[action_name]
             
-            steps.append(Step(
-                step_id=f"step-{step_counter}",
-                step_number=step_counter,
+                steps.append(Step(
+                    step_id=f"step-{step_counter}",
+                    step_number=step_counter,
                 step_content=step_content,
                 section=f"PDDL Action: {action_name}"
-            ))
-            step_counter += 1
+                ))
+                step_counter += 1
     
     return steps
 
@@ -529,6 +529,75 @@ def extract_numbered_list(plan_text: str) -> List[Step]:
             ))
     
     return steps
+
+
+def format_as_planning_problem(prompt: str) -> str:
+    """
+    Format user prompt as a planning problem if not already formatted.
+    Adds 'Planning problem:' prefix to help the model understand it's a planning task.
+    """
+    # Check if already starts with planning-related keywords
+    planning_keywords = ['planning problem:', 'plan:', 'create a plan', 'generate a plan', 'pddl']
+    if any(prompt.lower().strip().startswith(kw) for kw in planning_keywords):
+        return prompt
+    
+    # Otherwise, prefix it
+    return f"Planning problem: {prompt}"
+
+
+def extract_pddl_portion(text: str) -> str:
+    """
+    Extract PDDL code and comments from model output.
+    Looks for PDDL structures (define, :action, etc.) and comment blocks.
+    Returns only the PDDL-formatted content, removing any prose wrapper.
+    """
+    lines = text.split('\n')
+    pddl_lines = []
+    in_pddl_block = False
+    in_code_block = False
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Track code blocks
+        if stripped.startswith('```'):
+            in_code_block = not in_code_block
+            if 'pddl' in stripped.lower() or 'lisp' in stripped.lower():
+                in_pddl_block = True
+            continue
+        
+        # If we're in a PDDL code block, include the line
+        if in_code_block and in_pddl_block:
+            pddl_lines.append(line)
+            continue
+        
+        # Check for PDDL structures outside code blocks
+        is_pddl = (
+            stripped.startswith(';') or  # PDDL comment
+            stripped.startswith('(define') or  # Domain/problem definition
+            stripped.startswith('(:') or  # PDDL keyword
+            stripped.startswith('(;') or  # Plan step with comment
+            (stripped.startswith('(') and not stripped.startswith('(#')) or  # S-expression
+            stripped == '' or  # Empty line (preserve formatting)
+            stripped.startswith(')') or  # Closing paren
+            (in_pddl_block and stripped)  # Continue PDDL block
+        )
+        
+        # Start PDDL block if we find PDDL content
+        if is_pddl and not in_pddl_block:
+            in_pddl_block = True
+        
+        # Include line if in PDDL block
+        if in_pddl_block and is_pddl:
+            pddl_lines.append(line)
+        # Stop PDDL block if we hit clear non-PDDL content (like markdown headers)
+        elif in_pddl_block and (stripped.startswith('#') or stripped.startswith('**')):
+            in_pddl_block = False
+    
+    # If we found PDDL content, return it; otherwise return original
+    if pddl_lines:
+        return '\n'.join(pddl_lines).strip()
+    return text
 
 
 def call_pddl_model(prompt: str, temperature: float, max_tokens: int) -> Dict[str, Any]:
@@ -739,14 +808,20 @@ async def generate_plan(request: GeneratePlanRequest):
         # Generate session ID
         session_id = str(uuid.uuid4())
         
+        # Prefix user prompt to frame it as a planning problem
+        formatted_prompt = format_as_planning_problem(request.prompt)
+        
         # Call PDDL model
-        response = call_pddl_model(request.prompt, request.temperature, request.max_tokens)
+        response = call_pddl_model(formatted_prompt, request.temperature, request.max_tokens)
         
         # Extract plan text
-        plan_text = response['choices'][0]['message']['content']
+        raw_output = response['choices'][0]['message']['content']
+        
+        # Extract PDDL portion from the output
+        pddl_output = extract_pddl_portion(raw_output)
         
         # Parse into steps
-        steps = parse_steps_from_plan(plan_text)
+        steps = parse_steps_from_plan(pddl_output)
         
         # Prepare metadata
         metadata = {
@@ -761,7 +836,7 @@ async def generate_plan(request: GeneratePlanRequest):
         return GeneratePlanResponse(
             session_id=session_id,
             prompt=request.prompt,
-            plan_text=plan_text,
+            plan_text=pddl_output,
             steps=steps,
             metadata=metadata
         )
