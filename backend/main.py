@@ -867,15 +867,15 @@ async def generate_plan(request: GeneratePlanRequest):
         # Call PDDL model
         response = call_pddl_model(formatted_prompt, request.temperature, request.max_tokens)
         
-        # Extract plan text
+        # Extract plan text - KEEP ORIGINAL for frontend display
         raw_output = response['choices'][0]['message']['content']
         logger.info(f"📄 Raw output length: {len(raw_output)} chars")
         
-        # Extract PDDL portion from the output
+        # Extract PDDL portion for parsing (but we'll send raw_output to frontend)
         pddl_output = extract_pddl_portion(raw_output)
         logger.info(f"📋 PDDL portion length: {len(pddl_output)} chars")
         
-        # Parse into steps
+        # Parse into steps using PDDL portion
         steps = parse_steps_from_plan(pddl_output)
         logger.info(f"🔢 Parsed {len(steps)} steps from plan")
         
@@ -886,15 +886,18 @@ async def generate_plan(request: GeneratePlanRequest):
             "prompt_tokens": response.get('usage', {}).get('prompt_tokens'),
             "completion_tokens": response.get('usage', {}).get('completion_tokens'),
             "total_tokens": response.get('usage', {}).get('total_tokens'),
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "raw_output_length": len(raw_output),
+            "pddl_output_length": len(pddl_output)
         }
         
         logger.info(f"✅ Plan generation complete - Session: {session_id[:8]}")
         
+        # Return raw_output (not pddl_output) to preserve original model output
         return GeneratePlanResponse(
             session_id=session_id,
             prompt=request.prompt,
-            plan_text=pddl_output,
+            plan_text=raw_output,  # Changed from pddl_output to raw_output
             steps=steps,
             metadata=metadata
         )
