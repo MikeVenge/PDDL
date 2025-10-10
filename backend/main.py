@@ -52,8 +52,8 @@ async def startup_event():
 
 # Configuration
 API_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
-API_KEY = os.getenv("FIREWORKS_API_KEY", "fw_3ZHFp8ZR5WeoadXcFcjEKY4z")
-MODEL = "accounts/colin-fbf68a/models/pddl-gpt-oss-model"
+API_KEY = os.getenv("FIREWORKS_API_KEY", "fw_3ZMFJW3vYPov2JqZEv2FXGyU")
+MODEL = "accounts/colin-fbf68a/deployedModels/pddl-gpt-oss-model-b9ms7n6a"
 SYSTEM_PROMPT = """You are an expert planning assistant and PDDL engineer. Given a natural-language planning problem, you must:
 
 Understand & formalize the task (objects, initial state, goals, constraints, preferences).
@@ -636,12 +636,19 @@ def call_pddl_model(prompt: str, temperature: float, max_tokens: int) -> Dict[st
     logger.info(f"   Prompt length: {len(prompt)} chars")
     
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {API_KEY}"
     }
     
     payload = {
         "model": MODEL,
+        "max_tokens": max_tokens,
+        "top_p": 1,
+        "top_k": 40,
+        "presence_penalty": 0,
+        "frequency_penalty": 0,
+        "temperature": temperature,
         "messages": [
             {
                 "role": "system",
@@ -651,9 +658,7 @@ def call_pddl_model(prompt: str, temperature: float, max_tokens: int) -> Dict[st
                 "role": "user",
                 "content": prompt
             }
-        ],
-        "max_tokens": max_tokens,
-        "temperature": temperature
+        ]
     }
     
     try:
