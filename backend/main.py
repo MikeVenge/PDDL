@@ -247,10 +247,11 @@ def parse_steps_from_plan(plan_text: str) -> List[Step]:
     Parse PDDL plan output into discrete steps.
     Handles multiple formats:
     1. JSON format with pddl.plan field
-    2. PDDL action blocks with ; Action: headers
-    3. Numbered sections (## 1. Title)
-    4. Table rows with steps
-    5. Simple numbered lists
+    2. PLAN section with numbered actions (new system prompt format)
+    3. PDDL action blocks with ; Action: headers
+    4. Numbered sections (## 1. Title)
+    5. Table rows with steps
+    6. Simple numbered lists
     """
     steps = []
     step_counter = 1
@@ -260,22 +261,27 @@ def parse_steps_from_plan(plan_text: str) -> List[Step]:
     if json_steps:
         return json_steps
     
-    # Try Strategy 1: Extract PDDL action blocks from code blocks
+    # Try Strategy 1: Extract from ; PLAN section (new system prompt format)
+    plan_section_steps = extract_plan_section_steps(plan_text)
+    if plan_section_steps:
+        return plan_section_steps
+    
+    # Try Strategy 2: Extract PDDL action blocks from code blocks
     pddl_actions = extract_pddl_actions(plan_text)
     if pddl_actions:
         return pddl_actions
     
-    # Try Strategy 2: Extract numbered sections (## N.)
+    # Try Strategy 3: Extract numbered sections (## N.)
     numbered_sections = extract_numbered_sections(plan_text)
     if numbered_sections:
         return numbered_sections
     
-    # Try Strategy 3: Extract from workflow tables
+    # Try Strategy 4: Extract from workflow tables
     table_steps = extract_table_steps(plan_text)
     if table_steps:
         return table_steps
     
-    # Try Strategy 4: Simple numbered list extraction
+    # Try Strategy 5: Simple numbered list extraction
     numbered_list = extract_numbered_list(plan_text)
     if numbered_list:
         return numbered_list
@@ -287,6 +293,102 @@ def parse_steps_from_plan(plan_text: str) -> List[Step]:
         step_content=plan_text,
         section="Complete Plan"
     )]
+
+
+def extract_plan_section_steps(plan_text: str) -> List[Step]:
+    """
+    Extract plan steps from the new system prompt format with ; PLAN section.
+    Format: (; N) (action-name param1 param2...)
+    Also extracts corresponding STATE TRACE information if available.
+    """
+    steps = []
+    lines = plan_text.split('\n')
+    
+    # Find the PLAN section
+    in_plan_section = False
+    in_state_trace = False
+    plan_actions = {}  # step_num -> action
+    state_traces = {}  # step_num -> trace info
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Detect PLAN section
+        if stripped.upper() in ['; PLAN', ';PLAN', '; plan', ';plan']:
+            in_plan_section = True
+            in_state_trace = False
+            continue
+        
+        # Detect STATE TRACE section
+        if stripped.upper() in ['; STATE TRACE', ';STATE TRACE', '; state trace', ';state trace']:
+            in_plan_section = False
+            in_state_trace = True
+            continue
+        
+        # Exit sections on new major section
+        if stripped.upper().startswith('; SOUNDNESS') or stripped.upper().startswith(';SOUNDNESS'):
+            in_plan_section = False
+            in_state_trace = False
+            continue
+        
+        # Extract plan actions
+        if in_plan_section:
+            # Match patterns like: 
+            # (; 1) (identify-company company1)
+            # ; (1) pick-up a
+            # (;10) (collect-data company2 business source1)
+            
+            # Pattern 1: (; N) (action ...)
+            match1 = re.match(r'\(\s*;\s*(\d+)\s*\)\s*(\(.+\))', stripped)
+            # Pattern 2: ; (N) action ...
+            match2 = re.match(r';\s*\(\s*(\d+)\s*\)\s*(.+)', stripped)
+            
+            if match1:
+                step_num = int(match1.group(1))
+                action = match1.group(2).strip()
+                plan_actions[step_num] = action
+            elif match2:
+                step_num = int(match2.group(1))
+                action = match2.group(2).strip()
+                # Wrap action in parens if not already
+                if not action.startswith('('):
+                    action = f"({action})"
+                plan_actions[step_num] = action
+        
+        # Extract state traces
+        if in_state_trace:
+            # Match patterns like: ; step 1 preconditions_satisfied: yes -> {...}
+            # or ; step 1 added: {identified company1} deleted: {}
+            step_match = re.match(r';\s*step\s*(\d+)\s+(.+)', stripped)
+            if step_match:
+                step_num = int(step_match.group(1))
+                trace_info = step_match.group(2).strip()
+                
+                if step_num not in state_traces:
+                    state_traces[step_num] = []
+                state_traces[step_num].append(trace_info)
+    
+    # Combine actions with traces
+    for step_num in sorted(plan_actions.keys()):
+        action = plan_actions[step_num]
+        
+        # Build step content
+        step_content = f"**Action {step_num}:**\n```lisp\n{action}\n```"
+        
+        # Add state trace if available
+        if step_num in state_traces:
+            step_content += "\n\n**State Trace:**\n"
+            for trace in state_traces[step_num]:
+                step_content += f"- {trace}\n"
+        
+        steps.append(Step(
+            step_id=f"step-{step_num}",
+            step_number=step_num,
+            step_content=step_content.strip(),
+            section=f"Plan Step {step_num}"
+        ))
+    
+    return steps
 
 
 def extract_json_plan_steps(plan_text: str) -> List[Step]:
