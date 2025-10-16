@@ -1,0 +1,172 @@
+{
+  "session_id": "62d63f56-1a8e-42aa-acb8-1eb7524c998d",
+  "timestamp": "2025-10-13T02:27:27.710667Z",
+  "dataset_format": "MIT_PDDL_BlocksWorld_RLHF",
+  "reference": "https://github.com/CassieHuang22/llm-as-pddl-formalizer",
+  "original_prompt": "Create a plan to analyze three publicly listed AI companies in Japan. For each company: identify it, collect business data, collect technical data, synthesize both aspects, and mark it ready. Once all companies are ready, write a final report.",
+  "model_output": "; META\n; task_restatement: Analyze three publicly listed AI companies in Japan by identifying each, gathering business and technical data, synthesizing the information, marking each analysis ready, and finally producing a consolidated report.\n; data_needed:\n; - three distinct company objects (company1, company2, company3)\n; - actions to identify, collect business data, collect technical data, synthesize, mark ready, and write final report\n; - constraints: a company must be identified before any data collection; both data types must be collected before synthesis; synthesis must precede marking ready; all three companies must be ready before the final report can be written\n; - goal predicate: final-report-written\n; data_collation:\n;   companies = {company1, company2, company3}   ; assumption: exactly three target companies exist\n;   initial_state = {}                           ; no predicates hold initially\n;   goal = (final-report-written)                ; desired final condition\n; reasoning_outline:\n; 1. Identify each company sequentially.\n; 2. For each identified company, collect business data then technical data.\n; 3. Synthesize the collected data for the company.\n; 4. Mark the company's analysis as ready.\n; 5. After all three companies are ready, write the final report.\n\n; DOMAIN\n(define (domain company-analysis)\n  (:requirements :strips :typing)\n  (:types company)\n\n  (:predicates\n    (identified ?c - company)\n    (business-collected ?c - company)\n    (technical-collected ?c - company)\n    (synthesized ?c - company)\n    (ready ?c - company)\n    (final-report-written)\n  )\n\n  (:action identify-company\n    :parameters (?c - company)\n    :precondition ()\n    :effect (and (identified ?c))\n  )\n\n  (:action collect-business-data\n    :parameters (?c - company)\n    :precondition (and (identified ?c) (not (business-collected ?c)))\n    :effect (and (business-collected ?c))\n  )\n\n  (:action collect-technical-data\n    :parameters (?c - company)\n    :precondition (and (identified ?c) (not (technical-collected ?c)))\n    :effect (and (technical-collected ?c))\n  )\n\n  (:action synthesize-data\n    :parameters (?c - company)\n    :precondition (and (business-collected ?c) (technical-collected ?c) (not (synthesized ?c)))\n    :effect (and (synthesized ?c))\n  )\n\n  (:action mark-ready\n    :parameters (?c - company)\n    :precondition (and (synthesized ?c) (not (ready ?c)))\n    :effect (and (ready ?c))\n  )\n\n  (:action write-final-report\n    :parameters ()\n    :precondition (and (ready company1) (ready company2) (ready company3) (not (final-report-written)))\n    :effect (and (final-report-written))\n  )\n)\n\n; PROBLEM\n(define (problem analyze-japan-ai-companies)\n  (:domain company-analysis)\n  (:objects\n    company1 company2 company3 - company\n  )\n  (:init\n    ; no predicates true initially\n  )\n  (:goal (and (final-report-written)))\n)\n\n; PLAN\n; plan\n(; 1) (identify-company company1)\n(; 2) (collect-business-data company1)\n(; 3) (collect-technical-data company1)\n(; 4) (synthesize-data company1)\n(; 5) (mark-ready company1)\n(; 6) (identify-company company2)\n(; 7) (collect-business-data company2)\n(; 8) (collect-technical-data company2)\n(; 9) (synthesize-data company2)\n(;10) (mark-ready company2)\n(;11) (identify-company company3)\n(;12) (collect-business-data company3)\n(;13) (collect-technical-data company3)\n(;14) (synthesize-data company3)\n(;15) (mark-ready company3)\n(;16) (write-final-report)\n\n; STATE TRACE\n; step 1 preconditions_satisfied: yes -> {} ; added: {identified company1}\n; step 2 preconditions_satisfied: yes -> {identified company1} ; added: {business-collected company1}\n; step 3 preconditions_satisfied: yes -> {identified company1, business-collected company1} ; added: {technical-collected company1}\n; step 4 preconditions_satisfied: yes -> {identified company1, business-collected company1, technical-collected company1} ; added: {synthesized company1}\n; step 5 preconditions_satisfied: yes -> {synthesized company1} ; added: {ready company1}\n; step 6 preconditions_satisfied: yes -> {} ; added: {identified company2}\n; step 7 preconditions_satisfied: yes -> {identified company2} ; added: {business-collected company2}\n; step 8 preconditions_satisfied: yes -> {identified company2, business-collected company2} ; added: {technical-collected company2}\n; step 9 preconditions_satisfied: yes -> {identified company2, business-collected company2, technical-collected company2} ; added: {synthesized company2}\n; step10 preconditions_satisfied: yes -> {synthesized company2} ; added: {ready company2}\n; step11 preconditions_satisfied: yes -> {} ; added: {identified company3}\n; step12 preconditions_satisfied: yes -> {identified company3} ; added: {business-collected company3}\n; step13 preconditions_satisfied: yes -> {identified company3, business-collected company3} ; added: {technical-collected company3}\n; step14 preconditions_satisfied: yes -> {identified company3, business-collected company3, technical-collected company3} ; added: {synthesized company3}\n; step15 preconditions_satisfied: yes -> {synthesized company3} ; added: {ready company3}\n; step16 preconditions_satisfied: yes -> {ready company1, ready company2, ready company3} ; added: {final-report-written}\n\n; SOUNDNESS CHECKS\n; domain_plan_consistency: action names, arities, and types match domain definitions\n; preconditions_satisfied: all steps verified above\n; goals_achieved: final-report-written holds after step 16\n; cost/optimality: no action costs defined; plan length 16 is minimal given sequential dependencies\n; temporal/resource invariants: none applicable\n\n; EXPLANATION\n; The plan proceeds company by company, respecting the required order: identification \u2192 business data \u2192 technical data \u2192 synthesis \u2192 ready. Only after all three companies reach the ready state can the final report be authored. This sequential approach guarantees that each prerequisite is satisfied before the next action, yielding a correct and straightforward solution without unnecessary parallelism.",
+  "pddl_structure": {
+    "domain_definition": "(define (domain company-analysis)\n  (:requirements :strips :typing)\n  (:types company)\n\n  (:predicates\n    (identified ?c - company)\n    (business-collected ?c - company)\n    (technical-collected ?c - company)\n    (synthesized ?c - company)\n    (ready ?c - company)\n    (final-report-written)\n  )\n\n  (:action identify-company\n    :parameters (?c - company)\n    :precondition ()\n    :effect (and (identified ?c))\n  )\n\n  (:action collect-business-data\n    :parameters (?c - company)\n    :precondition (and (identified ?c) (not (business-collected ?c)))\n    :effect (and (business-collected ?c))\n  )\n\n  (:action collect-technical-data\n    :parameters (?c - company)\n    :precondition (and (identified ?c) (not (technical-collected ?c)))\n    :effect (and (technical-collected ?c))\n  )\n\n  (:action synthesize-data\n    :parameters (?c - company)\n    :precondition (and (business-collected ?c) (technical-collected ?c) (not (synthesized ?c)))\n    :effect (and (synthesized ?c))\n  )\n\n  (:action mark-ready\n    :parameters (?c - company)\n    :precondition (and (synthesized ?c) (not (ready ?c)))\n    :effect (and (ready ?c))\n  )\n\n  (:action write-final-report\n    :parameters ()\n    :precondition (and (ready company1) (ready company2) (ready company3) (not (final-report-written)))\n    :effect (and (final-report-written))\n  )\n)",
+    "problem_definition": "(define (problem analyze-japan-ai-companies)\n  (:domain company-analysis)\n  (:objects\n    company1 company2 company3 - company\n  )\n  (:init\n    ; no predicates true initially\n  )\n  (:goal (and (final-report-written)))\n)",
+    "plan_sequence": null,
+    "validation": {
+      "is_valid_structure": true,
+      "has_domain": true,
+      "has_problem": true,
+      "has_actions": true,
+      "has_predicates": true,
+      "errors": []
+    }
+  },
+  "model_metadata": {
+    "model": "accounts/colin-fbf68a/models/pddl-gpt-oss-model",
+    "temperature": 0.2,
+    "max_tokens": 10000,
+    "prompt_tokens": 1107,
+    "completion_tokens": 2301,
+    "total_tokens": 3408
+  },
+  "human_feedback": [
+    {
+      "step_id": "step-1",
+      "step_number": 1,
+      "step_content": "**Action 1:**\n```lisp\n(identify-company company1)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {} ; added: {identified company1}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-2",
+      "step_number": 2,
+      "step_content": "**Action 2:**\n```lisp\n(collect-business-data company1)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {identified company1} ; added: {business-collected company1}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-3",
+      "step_number": 3,
+      "step_content": "**Action 3:**\n```lisp\n(collect-technical-data company1)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {identified company1, business-collected company1} ; added: {technical-collected company1}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-4",
+      "step_number": 4,
+      "step_content": "**Action 4:**\n```lisp\n(synthesize-data company1)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {identified company1, business-collected company1, technical-collected company1} ; added: {synthesized company1}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-5",
+      "step_number": 5,
+      "step_content": "**Action 5:**\n```lisp\n(mark-ready company1)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {synthesized company1} ; added: {ready company1}",
+      "rating": "negative",
+      "reason": "we dont need this step",
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-6",
+      "step_number": 6,
+      "step_content": "**Action 6:**\n```lisp\n(identify-company company2)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {} ; added: {identified company2}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-7",
+      "step_number": 7,
+      "step_content": "**Action 7:**\n```lisp\n(collect-business-data company2)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {identified company2} ; added: {business-collected company2}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-8",
+      "step_number": 8,
+      "step_content": "**Action 8:**\n```lisp\n(collect-technical-data company2)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {identified company2, business-collected company2} ; added: {technical-collected company2}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-9",
+      "step_number": 9,
+      "step_content": "**Action 9:**\n```lisp\n(synthesize-data company2)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {identified company2, business-collected company2, technical-collected company2} ; added: {synthesized company2}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-10",
+      "step_number": 10,
+      "step_content": "**Action 10:**\n```lisp\n(mark-ready company2)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {synthesized company2} ; added: {ready company2}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-11",
+      "step_number": 11,
+      "step_content": "**Action 11:**\n```lisp\n(identify-company company3)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {} ; added: {identified company3}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-12",
+      "step_number": 12,
+      "step_content": "**Action 12:**\n```lisp\n(collect-business-data company3)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {identified company3} ; added: {business-collected company3}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-13",
+      "step_number": 13,
+      "step_content": "**Action 13:**\n```lisp\n(collect-technical-data company3)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {identified company3, business-collected company3} ; added: {technical-collected company3}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-14",
+      "step_number": 14,
+      "step_content": "**Action 14:**\n```lisp\n(synthesize-data company3)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {identified company3, business-collected company3, technical-collected company3} ; added: {synthesized company3}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-15",
+      "step_number": 15,
+      "step_content": "**Action 15:**\n```lisp\n(mark-ready company3)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {synthesized company3} ; added: {ready company3}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    },
+    {
+      "step_id": "step-16",
+      "step_number": 16,
+      "step_content": "**Action 16:**\n```lisp\n(write-final-report)\n```\n\n**State Trace:**\n- preconditions_satisfied: yes -> {ready company1, ready company2, ready company3} ; added: {final-report-written}",
+      "rating": "positive",
+      "reason": null,
+      "feedback_quality": "basic"
+    }
+  ],
+  "aggregated_metrics": {
+    "total_steps": 16,
+    "positive_ratings": 15,
+    "negative_ratings": 1,
+    "overall_score": 0.938,
+    "pddl_validity_score": 1.0
+  },
+  "training_metadata": {
+    "pipeline_type": "llm-as-formalizer",
+    "evaluation_method": "human_feedback",
+    "domain_type": "general_planning",
+    "can_use_for_training": true
+  }
+}

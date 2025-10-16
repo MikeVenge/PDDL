@@ -52,8 +52,8 @@ async def startup_event():
 
 # Configuration
 API_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
-API_KEY = os.getenv("FIREWORKS_API_KEY", "fw_3ZHFp8ZR5WeoadXcFcjEKY4z")
-MODEL = os.getenv("PDDL_MODEL", "accounts/colin-fbf68a/models/pddl-gpt-oss-model")
+API_KEY = os.getenv("FIREWORKS_API_KEY", "fw_3ZNkrZnbfKVHhU65bFirkpJr")
+MODEL = os.getenv("PDDL_MODEL", "accounts/colin-fbf68a/deployedModels/pddlplanner-turbo-10141406-w5lghxbj")
 SYSTEM_PROMPT = """You are an expert planning assistant and PDDL engineer. Given a natural-language planning problem, you must:
 
 Understand & formalize the task (objects, initial state, goals, constraints, preferences).
@@ -194,7 +194,7 @@ except Exception as e:
 # Request/Response Models
 class GeneratePlanRequest(BaseModel):
     prompt: str = Field(..., min_length=10, max_length=5000)
-    temperature: float = Field(0.2, ge=0.0, le=1.0)
+    temperature: float = Field(0.6, ge=0.0, le=1.0)
     max_tokens: int = Field(10000, ge=1000, le=20000)
 
 

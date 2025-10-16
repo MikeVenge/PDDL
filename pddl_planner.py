@@ -11,18 +11,18 @@ import requests
 
 
 API_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
-API_KEY = "fw_3ZHFp8ZR5WeoadXcFcjEKY4z"
-MODEL = "accounts/colin-fbf68a/models/pddl-gpt-oss-model"
+API_KEY = "fw_3ZNkrZnbfKVHhU65bFirkpJr"
+MODEL = "accounts/colin-fbf68a/deployedModels/pddlplanner-turbo-10141406-w5lghxbj"
 SYSTEM_PROMPT = "You are an expert planning assistant. When given a problem, output a structured plan in PDDL format with actions and explanations."
 
 
-def call_pddl_model(user_prompt, temperature=0.5, max_tokens=10000):
+def call_pddl_model(user_prompt, temperature=0.6, max_tokens=10000):
     """
     Call the PDDL model API with the given user prompt.
     
     Args:
         user_prompt (str): The user's planning problem
-        temperature (float): Sampling temperature (default: 0.5)
+        temperature (float): Sampling temperature (default: 0.6)
         max_tokens (int): Maximum tokens to generate (default: 10000)
     
     Returns:
@@ -123,8 +123,8 @@ Examples:
     parser.add_argument(
         '-t', '--temperature',
         type=float,
-        default=0.5,
-        help='Sampling temperature (default: 0.5)'
+        default=0.6,
+        help='Sampling temperature (default: 0.6)'
     )
     
     parser.add_argument(
