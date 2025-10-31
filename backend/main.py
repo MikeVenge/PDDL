@@ -15,6 +15,8 @@ from datetime import datetime
 import uuid
 import logging
 import sys
+from google import genai
+from google.genai.types import GenerateContentConfig, ThinkingConfig
 
 # Configure logging for Railway
 logging.basicConfig(
@@ -44,16 +46,25 @@ async def startup_event():
     logger.info("🚀 PDDL RLHF API starting up...")
     logger.info(f"📁 Working directory: {os.getcwd()}")
     logger.info(f"📁 Training data directory: {os.path.join(os.getcwd(), 'training_data')}")
-    logger.info(f"🔑 API Key configured: {'Yes' if API_KEY else 'No'}")
+    logger.info(f"🔑 Project ID configured: {'Yes' if PROJECT_ID else 'No'}")
     logger.info(f"🤖 Model: {MODEL}")
+    logger.info(f"🌐 Location: {LOCATION}")
     logger.info(f"🌐 PORT: {os.getenv('PORT', 'not set')}")
     logger.info("✅ Startup complete!")
     logger.info("=" * 60)
 
 # Configuration
-API_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
-API_KEY = os.getenv("FIREWORKS_API_KEY", "fw_3ZNkrZnbfKVHhU65bFirkpJr")
-MODEL = os.getenv("PDDL_MODEL", "accounts/colin-fbf68a/deployedModels/pddlplanner-turbo-10141406-w5lghxbj")
+PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "151456846282")
+LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+MODEL = os.getenv("PDDL_MODEL", "projects/151456846282/locations/us-central1/endpoints/9116348873541943296")
+
+# Initialize genai client
+try:
+    genai_client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
+    logger.info(f"✅ Google Vertex AI client initialized")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize Google Vertex AI client: {str(e)}")
+    genai_client = None
 SYSTEM_PROMPT = """You are an expert planning assistant and PDDL engineer. Given a natural-language planning problem, you must:
 
 Understand & formalize the task (objects, initial state, goals, constraints, preferences).
@@ -732,52 +743,78 @@ def extract_pddl_portion(text: str) -> str:
 
 
 def call_pddl_model(prompt: str, temperature: float, max_tokens: int) -> Dict[str, Any]:
-    """Call the PDDL model API."""
+    """Call the PDDL model API using Google Vertex AI."""
     logger.info(f"📡 Calling PDDL model: {MODEL}")
     logger.info(f"   Temperature: {temperature}, Max tokens: {max_tokens}")
     logger.info(f"   Prompt length: {len(prompt)} chars")
     
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {API_KEY}"
-    }
-    
-    payload = {
-        "model": MODEL,
-        "max_tokens": max_tokens,
-        "top_p": 1,
-        "top_k": 40,
-        "presence_penalty": 0,
-        "frequency_penalty": 0,
-        "temperature": temperature,
-        "messages": [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    }
+    if genai_client is None:
+        raise HTTPException(status_code=500, detail="Google Vertex AI client not initialized")
     
     try:
-        logger.info(f"🌐 Sending request to Fireworks AI...")
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        result = response.json()
+        # Combine system prompt with user prompt
+        # For Vertex AI, we can pass the system prompt as part of the contents
+        full_prompt = f"{SYSTEM_PROMPT}\n\nUser request: {prompt}"
+        
+        logger.info(f"🌐 Sending request to Google Vertex AI...")
+        
+        # Generate content using Vertex AI
+        resp = genai_client.models.generate_content(
+            model=MODEL,
+            contents=full_prompt,
+            config=GenerateContentConfig(
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+                thinking_config=ThinkingConfig(
+                    thinking_budget=0  # disables thinking
+                )
+            )
+        )
+        
+        # Extract response text
+        if hasattr(resp, 'text') and resp.text:
+            response_text = resp.text
+        elif hasattr(resp, 'candidates') and resp.candidates:
+            # Try to get text from candidates
+            candidate = resp.candidates[0]
+            if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                response_text = ''.join(part.text for part in candidate.content.parts if hasattr(part, 'text'))
+            elif hasattr(candidate, 'text'):
+                response_text = candidate.text
+            else:
+                response_text = str(resp.candidates[0])
+        else:
+            response_text = str(resp)
+        
+        # Extract usage information if available
+        usage_info = {}
+        if hasattr(resp, 'usage_metadata'):
+            usage_metadata = resp.usage_metadata
+            usage_info = {
+                'prompt_tokens': getattr(usage_metadata, 'prompt_token_count', None),
+                'completion_tokens': getattr(usage_metadata, 'candidates_token_count', None),
+                'total_tokens': getattr(usage_metadata, 'total_token_count', None)
+            }
         
         # Log response stats
-        usage = result.get('usage', {})
         logger.info(f"✅ Model response received")
-        logger.info(f"   Prompt tokens: {usage.get('prompt_tokens', 'N/A')}")
-        logger.info(f"   Completion tokens: {usage.get('completion_tokens', 'N/A')}")
-        logger.info(f"   Total tokens: {usage.get('total_tokens', 'N/A')}")
+        logger.info(f"   Response length: {len(response_text)} chars")
+        if usage_info:
+            logger.info(f"   Prompt tokens: {usage_info.get('prompt_tokens', 'N/A')}")
+            logger.info(f"   Completion tokens: {usage_info.get('completion_tokens', 'N/A')}")
+            logger.info(f"   Total tokens: {usage_info.get('total_tokens', 'N/A')}")
         
-        return result
-    except requests.exceptions.RequestException as e:
+        # Return response in a format compatible with existing code
+        return {
+            'choices': [{
+                'message': {
+                    'content': response_text
+                }
+            }],
+            'usage': usage_info
+        }
+        
+    except Exception as e:
         logger.error(f"❌ Error calling PDDL model: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error calling PDDL model: {str(e)}")
 
