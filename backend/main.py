@@ -107,10 +107,25 @@ else:
 
 # Initialize genai client
 try:
+    # Check if credentials file was set
+    creds_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if creds_file:
+        logger.info(f"   Using credentials file: {creds_file}")
+        logger.info(f"   File exists: {os.path.exists(creds_file)}")
+        if os.path.exists(creds_file):
+            with open(creds_file, 'r') as f:
+                logger.info(f"   File content length: {len(f.read())} chars")
+    else:
+        logger.warning(f"   No GOOGLE_APPLICATION_CREDENTIALS set, will try Application Default Credentials")
+    
     genai_client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
     logger.info(f"✅ Google Vertex AI client initialized")
+    logger.info(f"   Project: {PROJECT_ID}")
+    logger.info(f"   Location: {LOCATION}")
 except Exception as e:
     logger.error(f"❌ Failed to initialize Google Vertex AI client: {str(e)}")
+    import traceback
+    logger.error(traceback.format_exc())
     genai_client = None
 SYSTEM_PROMPT = """You are an expert planning assistant and PDDL engineer. Given a natural-language planning problem, you must:
 
@@ -1038,10 +1053,20 @@ async def root():
 async def debug_env():
     """Debug endpoint to check environment variables."""
     google_vars = {k: "***SET***" if v else "NOT SET" for k, v in os.environ.items() if k.startswith("GOOGLE")}
+    creds_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    creds_file_info = None
+    if creds_file:
+        creds_file_info = {
+            "path": creds_file,
+            "exists": os.path.exists(creds_file),
+            "size": os.path.getsize(creds_file) if os.path.exists(creds_file) else None
+        }
+    
     return {
         "google_env_vars": google_vars,
         "credentials_json_length": len(os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON", "")) or None,
-        "credentials_file_set": bool(os.getenv("GOOGLE_APPLICATION_CREDENTIALS")),
+        "credentials_file_set": bool(creds_file),
+        "credentials_file_info": creds_file_info,
         "project_id": PROJECT_ID,
         "location": LOCATION,
         "genai_client_initialized": genai_client is not None
