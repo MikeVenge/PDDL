@@ -1019,6 +1019,20 @@ async def root():
     }
 
 
+@app.get("/api/debug/env")
+async def debug_env():
+    """Debug endpoint to check environment variables."""
+    google_vars = {k: "***SET***" if v else "NOT SET" for k, v in os.environ.items() if k.startswith("GOOGLE")}
+    return {
+        "google_env_vars": google_vars,
+        "credentials_json_length": len(os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON", "")) or None,
+        "credentials_file_set": bool(os.getenv("GOOGLE_APPLICATION_CREDENTIALS")),
+        "project_id": PROJECT_ID,
+        "location": LOCATION,
+        "genai_client_initialized": genai_client is not None
+    }
+
+
 @app.post("/api/generate-plan", response_model=GeneratePlanResponse)
 async def generate_plan(request: GeneratePlanRequest):
     """
