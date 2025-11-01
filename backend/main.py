@@ -79,20 +79,24 @@ if credentials_json:
         logger.info(f"   Parsed JSON successfully")
         logger.info(f"   Project: {credentials_dict.get('project_id', 'unknown')}")
         
-        # Create credentials object directly from dict
-        google_credentials = service_account.Credentials.from_service_account_info(
-            credentials_dict,
-            scopes=['https://www.googleapis.com/auth/cloud-platform']
-        )
-        logger.info(f"✅ Google Cloud credentials created from JSON")
-        
-        # Also write to file as backup
+        # Write credentials to file FIRST (this is what Google SDK needs)
         credentials_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json')
         json_lib.dump(credentials_dict, credentials_file, indent=2)
         credentials_file.flush()
         credentials_file.close()
+        
+        # Set environment variable BEFORE creating any Google clients
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_file.name
-        logger.info(f"   Backup credentials file: {credentials_file.name}")
+        logger.info(f"✅ Google Cloud credentials file created: {credentials_file.name}")
+        logger.info(f"   File exists: {os.path.exists(credentials_file.name)}")
+        logger.info(f"   File size: {os.path.getsize(credentials_file.name)} bytes")
+        
+        # Create credentials object 
+        google_credentials = service_account.Credentials.from_service_account_info(
+            credentials_dict,
+            scopes=['https://www.googleapis.com/auth/cloud-platform']
+        )
+        logger.info(f"✅ Service account credentials object created")
             
     except json_lib.JSONDecodeError as e:
         logger.error(f"❌ Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON: {e}")
