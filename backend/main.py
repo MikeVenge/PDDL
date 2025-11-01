@@ -62,12 +62,25 @@ MODEL = os.getenv("PDDL_MODEL", "projects/151456846282/locations/us-central1/end
 credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
 if credentials_json:
     import tempfile
-    # Write credentials to a temporary file
-    credentials_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json')
-    credentials_file.write(credentials_json)
-    credentials_file.close()
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_file.name
-    logger.info(f"✅ Google Cloud credentials loaded from environment variable")
+    import json as json_lib
+    
+    try:
+        # Validate and parse JSON first
+        credentials_dict = json_lib.loads(credentials_json)
+        
+        # Write credentials to a temporary file
+        credentials_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json')
+        json_lib.dump(credentials_dict, credentials_file, indent=2)
+        credentials_file.close()
+        
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_file.name
+        logger.info(f"✅ Google Cloud credentials loaded from environment variable")
+        logger.info(f"   Project: {credentials_dict.get('project_id', 'unknown')}")
+    except json_lib.JSONDecodeError as e:
+        logger.error(f"❌ Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON: {e}")
+        logger.error(f"   First 100 chars: {credentials_json[:100]}")
+    except Exception as e:
+        logger.error(f"❌ Failed to setup credentials: {e}")
 
 # Initialize genai client
 try:
