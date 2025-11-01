@@ -58,6 +58,17 @@ PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "151456846282")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 MODEL = os.getenv("PDDL_MODEL", "projects/151456846282/locations/us-central1/endpoints/9116348873541943296")
 
+# Handle Google Cloud credentials from environment variable
+credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+if credentials_json:
+    import tempfile
+    # Write credentials to a temporary file
+    credentials_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json')
+    credentials_file.write(credentials_json)
+    credentials_file.close()
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_file.name
+    logger.info(f"✅ Google Cloud credentials loaded from environment variable")
+
 # Initialize genai client
 try:
     genai_client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
