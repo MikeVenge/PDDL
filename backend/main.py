@@ -70,9 +70,19 @@ if credentials_json:
     import json as json_lib
     
     try:
-        # Clean up any whitespace/newlines
+        # Clean up any whitespace/newlines/extra characters
         credentials_json = credentials_json.strip()
         logger.info(f"   Length: {len(credentials_json)} chars")
+        logger.info(f"   First 50 chars: {repr(credentials_json[:50])}")
+        logger.info(f"   Last 50 chars: {repr(credentials_json[-50:])}")
+        
+        # Try to find the actual JSON content (look for { to })
+        start_idx = credentials_json.find('{')
+        end_idx = credentials_json.rfind('}')
+        
+        if start_idx != -1 and end_idx != -1:
+            credentials_json = credentials_json[start_idx:end_idx+1]
+            logger.info(f"   Extracted JSON from position {start_idx} to {end_idx+1}")
         
         # Parse JSON
         credentials_dict = json_lib.loads(credentials_json)
