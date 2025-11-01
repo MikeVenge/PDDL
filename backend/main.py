@@ -425,11 +425,14 @@ def extract_plan_section_steps(plan_text: str) -> List[Step]:
             # (; 1) (identify-company company1)
             # ; (1) pick-up a
             # (;10) (collect-data company2 business source1)
+            # ; (prepare-listing-context amd amd-symbol nasdaq today)
             
             # Pattern 1: (; N) (action ...)
             match1 = re.match(r'\(\s*;\s*(\d+)\s*\)\s*(\(.+\))', stripped)
             # Pattern 2: ; (N) action ...
             match2 = re.match(r';\s*\(\s*(\d+)\s*\)\s*(.+)', stripped)
+            # Pattern 3: ; (action-name param1 param2 ...) - NEW FORMAT
+            match3 = re.match(r';\s*(\(.+\))', stripped)
             
             if match1:
                 step_num = int(match1.group(1))
@@ -442,6 +445,13 @@ def extract_plan_section_steps(plan_text: str) -> List[Step]:
                 if not action.startswith('('):
                     action = f"({action})"
                 plan_actions[step_num] = action
+            elif match3:
+                # No explicit number, use counter
+                action = match3.group(1).strip()
+                if action and action.startswith('(') and action.endswith(')'):
+                    # Get the next available step number
+                    step_num = len(plan_actions) + 1
+                    plan_actions[step_num] = action
         
         # Extract state traces
         if in_state_trace:
