@@ -59,33 +59,48 @@ LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 MODEL = os.getenv("PDDL_MODEL", "projects/151456846282/locations/us-central1/endpoints/9116348873541943296")
 
 # Handle Google Cloud credentials from environment variable
-credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+# Try with and without newline (Railway sometimes adds \n)
+credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON\n")
 logger.info(f"🔍 Checking for GOOGLE_APPLICATION_CREDENTIALS_JSON: {'Found' if credentials_json else 'Not Found'}")
+
 if credentials_json:
     import tempfile
     import json as json_lib
     
     try:
+        # Clean up any whitespace/newlines
+        credentials_json = credentials_json.strip()
         logger.info(f"   Length: {len(credentials_json)} chars")
         
         # Validate and parse JSON first
         credentials_dict = json_lib.loads(credentials_json)
         logger.info(f"   Parsed JSON successfully")
+        logger.info(f"   Project: {credentials_dict.get('project_id', 'unknown')}")
         
-        # Write credentials to a temporary file
+        # Write credentials to a temporary file that persists
         credentials_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json')
         json_lib.dump(credentials_dict, credentials_file, indent=2)
+        credentials_file.flush()  # Ensure data is written
         credentials_file.close()
         
+        # Set the environment variable for Google client
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_file.name
-        logger.info(f"✅ Google Cloud credentials loaded from environment variable")
-        logger.info(f"   Project: {credentials_dict.get('project_id', 'unknown')}")
-        logger.info(f"   Credentials file: {credentials_file.name}")
+        
+        # Verify file exists and is readable
+        if os.path.exists(credentials_file.name):
+            logger.info(f"✅ Google Cloud credentials loaded from environment variable")
+            logger.info(f"   Credentials file: {credentials_file.name}")
+            logger.info(f"   File size: {os.path.getsize(credentials_file.name)} bytes")
+        else:
+            logger.error(f"❌ Credentials file was not created: {credentials_file.name}")
+            
     except json_lib.JSONDecodeError as e:
         logger.error(f"❌ Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON: {e}")
         logger.error(f"   First 100 chars: {credentials_json[:100] if credentials_json else 'N/A'}")
     except Exception as e:
         logger.error(f"❌ Failed to setup credentials: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
 else:
     logger.warning(f"⚠️  GOOGLE_APPLICATION_CREDENTIALS_JSON not found in environment variables")
     logger.warning(f"   Available env vars starting with GOOGLE: {[k for k in os.environ.keys() if k.startswith('GOOGLE')]}")
