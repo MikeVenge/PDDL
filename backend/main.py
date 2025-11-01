@@ -17,6 +17,7 @@ import logging
 import sys
 from google import genai
 from google.genai.types import GenerateContentConfig, ThinkingConfig
+from google.oauth2 import service_account
 
 # Configure logging for Railway
 logging.basicConfig(
@@ -63,6 +64,7 @@ MODEL = os.getenv("PDDL_MODEL", "projects/151456846282/locations/us-central1/end
 credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON\n")
 logger.info(f"🔍 Checking for GOOGLE_APPLICATION_CREDENTIALS_JSON: {'Found' if credentials_json else 'Not Found'}")
 
+google_credentials = None
 if credentials_json:
     import tempfile
     import json as json_lib
@@ -72,27 +74,25 @@ if credentials_json:
         credentials_json = credentials_json.strip()
         logger.info(f"   Length: {len(credentials_json)} chars")
         
-        # Validate and parse JSON first
+        # Parse JSON
         credentials_dict = json_lib.loads(credentials_json)
         logger.info(f"   Parsed JSON successfully")
         logger.info(f"   Project: {credentials_dict.get('project_id', 'unknown')}")
         
-        # Write credentials to a temporary file that persists
+        # Create credentials object directly from dict
+        google_credentials = service_account.Credentials.from_service_account_info(
+            credentials_dict,
+            scopes=['https://www.googleapis.com/auth/cloud-platform']
+        )
+        logger.info(f"✅ Google Cloud credentials created from JSON")
+        
+        # Also write to file as backup
         credentials_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json')
         json_lib.dump(credentials_dict, credentials_file, indent=2)
-        credentials_file.flush()  # Ensure data is written
+        credentials_file.flush()
         credentials_file.close()
-        
-        # Set the environment variable for Google client
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_file.name
-        
-        # Verify file exists and is readable
-        if os.path.exists(credentials_file.name):
-            logger.info(f"✅ Google Cloud credentials loaded from environment variable")
-            logger.info(f"   Credentials file: {credentials_file.name}")
-            logger.info(f"   File size: {os.path.getsize(credentials_file.name)} bytes")
-        else:
-            logger.error(f"❌ Credentials file was not created: {credentials_file.name}")
+        logger.info(f"   Backup credentials file: {credentials_file.name}")
             
     except json_lib.JSONDecodeError as e:
         logger.error(f"❌ Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON: {e}")
@@ -107,18 +107,19 @@ else:
 
 # Initialize genai client
 try:
-    # Check if credentials file was set
-    creds_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if creds_file:
-        logger.info(f"   Using credentials file: {creds_file}")
-        logger.info(f"   File exists: {os.path.exists(creds_file)}")
-        if os.path.exists(creds_file):
-            with open(creds_file, 'r') as f:
-                logger.info(f"   File content length: {len(f.read())} chars")
+    # Initialize client with credentials if available
+    if google_credentials:
+        logger.info(f"   Initializing with service account credentials")
+        # For genai.Client with Vertex AI, credentials should be picked up from environment
+        genai_client = genai.Client(
+            vertexai=True, 
+            project=PROJECT_ID, 
+            location=LOCATION
+        )
     else:
-        logger.warning(f"   No GOOGLE_APPLICATION_CREDENTIALS set, will try Application Default Credentials")
+        logger.warning(f"   No credentials object, using Application Default Credentials")
+        genai_client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
     
-    genai_client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
     logger.info(f"✅ Google Vertex AI client initialized")
     logger.info(f"   Project: {PROJECT_ID}")
     logger.info(f"   Location: {LOCATION}")
