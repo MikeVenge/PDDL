@@ -342,14 +342,62 @@ def extract_plan_section_steps(plan_text: str) -> List[Step]:
     Extract plan steps from the new system prompt format with ; PLAN section.
     Format: (; N) (action-name param1 param2...) or ; (N) (action-name...)
     Also extracts corresponding STATE TRACE information if available.
+    Includes full action definitions from DOMAIN section.
     """
     steps = []
     lines = plan_text.split('\n')
     
-    # Find the PLAN section
+    # First pass: Extract action definitions from DOMAIN section
+    action_definitions = {}  # action_name -> full definition
+    in_domain = False
+    current_action_name = None
+    current_action_lines = []
+    paren_depth = 0
+    
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        
+        # Detect DOMAIN section
+        if stripped.startswith('(define') and 'domain' in stripped.lower():
+            in_domain = True
+            continue
+        
+        # Exit DOMAIN when we hit PROBLEM section
+        if stripped.startswith('(define') and 'problem' in stripped.lower():
+            # Save last action if any
+            if current_action_name and current_action_lines:
+                action_definitions[current_action_name] = '\n'.join(current_action_lines)
+            in_domain = False
+            current_action_name = None
+            current_action_lines = []
+            continue
+        
+        if in_domain and '(:action' in line:
+            # Save previous action if any
+            if current_action_name and current_action_lines:
+                action_definitions[current_action_name] = '\n'.join(current_action_lines)
+            
+            # Start new action
+            action_match = re.search(r'\(:action\s+([\w\-]+)', line)
+            if action_match:
+                current_action_name = action_match.group(1)
+                current_action_lines = [line]
+                paren_depth = line.count('(') - line.count(')')
+        elif in_domain and current_action_name:
+            # Continue collecting action lines
+            current_action_lines.append(line)
+            paren_depth += line.count('(') - line.count(')')
+            
+            # Action complete when parentheses balance
+            if paren_depth == 0:
+                action_definitions[current_action_name] = '\n'.join(current_action_lines)
+                current_action_name = None
+                current_action_lines = []
+    
+    # Second pass: Extract plan actions and state traces
     in_plan_section = False
     in_state_trace = False
-    plan_actions = {}  # step_num -> action
+    plan_actions = {}  # step_num -> action call
     state_traces = {}  # step_num -> trace info
     
     for line in lines:
@@ -420,12 +468,20 @@ def extract_plan_section_steps(plan_text: str) -> List[Step]:
                     state_traces[step_num] = []
                 state_traces[step_num].append(trace_info)
     
-    # Combine actions with traces
+    # Combine actions with their definitions and traces
     for step_num in sorted(plan_actions.keys()):
-        action = plan_actions[step_num]
+        action_call = plan_actions[step_num]
         
-        # Build step content
-        step_content = f"**Action {step_num}:**\n```lisp\n{action}\n```"
+        # Extract action name from the call
+        action_name_match = re.match(r'\(([^\s\)]+)', action_call)
+        action_name = action_name_match.group(1) if action_name_match else None
+        
+        # Build step content with action call
+        step_content = f"**Action {step_num}:**\n```lisp\n{action_call}\n```"
+        
+        # Add full action definition from DOMAIN if available
+        if action_name and action_name in action_definitions:
+            step_content += f"\n\n**Action Definition:**\n```lisp\n{action_definitions[action_name]}\n```"
         
         # Add state trace if available
         if step_num in state_traces:
@@ -441,7 +497,7 @@ def extract_plan_section_steps(plan_text: str) -> List[Step]:
         ))
     
     if steps:
-        logger.info(f"✅ Extracted {len(steps)} steps from PLAN section")
+        logger.info(f"✅ Extracted {len(steps)} steps from PLAN section with {len(action_definitions)} action definitions")
     return steps
 
 
