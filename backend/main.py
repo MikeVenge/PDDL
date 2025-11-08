@@ -519,15 +519,22 @@ def extract_plan_section_steps(plan_text: str) -> List[Step]:
             # Match patterns like: 
             # (; 1) (identify-company company1)
             # ; (1) (load-package pkg1 truck1 locA)
-            # ; (gather-company-data msft)  <- NEW FORMAT without numbers
+            # ; (gather-company-data msft)
+            # (confirm-filing-status msft bond-issuance-filing) <- NO semicolon
             # (;10) (collect-data company2 business source1)
+            
+            # Skip empty lines
+            if not stripped:
+                continue
             
             # Pattern 1: (; N) (action ...)
             match1 = re.match(r'\(\s*;\s*(\d+)\s*\)\s*(\(.+\))', stripped)
             # Pattern 2: ; (N) (action ...)
             match2 = re.match(r';\s*\(\s*(\d+)\s*\)\s*(.+)', stripped)
-            # Pattern 3: ; (action ...) - NEW: no explicit number
+            # Pattern 3: ; (action ...) - with semicolon, no number
             match3 = re.match(r';\s*(\(.+\))\s*$', stripped)
+            # Pattern 4: (action ...) - NO semicolon, no number (NEW)
+            match4 = re.match(r'^(\([^\s]+.+\))\s*$', stripped)
             
             if match1:
                 step_num = int(match1.group(1))
@@ -537,15 +544,19 @@ def extract_plan_section_steps(plan_text: str) -> List[Step]:
             elif match2:
                 step_num = int(match2.group(1))
                 action = match2.group(2).strip()
-                # Action should already have parens in this format
                 plan_actions[step_num] = action
                 logger.debug(f"Extracted action (pattern 2): step {step_num}, action: {action[:50]}")
             elif match3:
-                # No explicit number, assign sequential number
                 action = match3.group(1).strip()
                 step_num = len(plan_actions) + 1
                 plan_actions[step_num] = action
                 logger.debug(f"Extracted action (pattern 3): step {step_num}, action: {action[:50]}")
+            elif match4:
+                # Action without semicolon - NEW FORMAT
+                action = match4.group(1).strip()
+                step_num = len(plan_actions) + 1
+                plan_actions[step_num] = action
+                logger.debug(f"Extracted action (pattern 4): step {step_num}, action: {action[:50]}")
         
         # Extract state traces
         if in_state_trace:
