@@ -55,7 +55,7 @@ async def startup_event():
 # Configuration
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "deep-research-467303")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-MODEL = os.getenv("PDDL_MODEL", "8060593410504916992")
+MODEL = os.getenv("PDDL_MODEL", "projects/deep-research-467303/locations/us-central1/models/8060593410504916992")
 
 # Initialize Google Vertex AI client
 genai_client = None
