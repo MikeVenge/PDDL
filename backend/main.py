@@ -340,7 +340,7 @@ def parse_steps_from_plan(plan_text: str) -> List[Step]:
 def extract_plan_section_steps(plan_text: str) -> List[Step]:
     """
     Extract plan steps from the new system prompt format with ; PLAN section.
-    Format: (; N) (action-name param1 param2...)
+    Format: (; N) (action-name param1 param2...) or ; (N) (action-name...)
     Also extracts corresponding STATE TRACE information if available.
     """
     steps = []
@@ -359,6 +359,7 @@ def extract_plan_section_steps(plan_text: str) -> List[Step]:
         if stripped.upper() in ['; PLAN', ';PLAN', '; plan', ';plan']:
             in_plan_section = True
             in_state_trace = False
+            logger.debug(f"Found PLAN section")
             continue
         
         # Detect STATE TRACE section
@@ -377,25 +378,25 @@ def extract_plan_section_steps(plan_text: str) -> List[Step]:
         if in_plan_section:
             # Match patterns like: 
             # (; 1) (identify-company company1)
-            # ; (1) pick-up a
+            # ; (1) (load-package pkg1 truck1 locA)
             # (;10) (collect-data company2 business source1)
             
             # Pattern 1: (; N) (action ...)
             match1 = re.match(r'\(\s*;\s*(\d+)\s*\)\s*(\(.+\))', stripped)
-            # Pattern 2: ; (N) action ...
+            # Pattern 2: ; (N) (action ...)
             match2 = re.match(r';\s*\(\s*(\d+)\s*\)\s*(.+)', stripped)
             
             if match1:
                 step_num = int(match1.group(1))
                 action = match1.group(2).strip()
                 plan_actions[step_num] = action
+                logger.debug(f"Extracted action (pattern 1): step {step_num}, action: {action[:50]}")
             elif match2:
                 step_num = int(match2.group(1))
                 action = match2.group(2).strip()
-                # Wrap action in parens if not already
-                if not action.startswith('('):
-                    action = f"({action})"
+                # Action should already have parens in this format
                 plan_actions[step_num] = action
+                logger.debug(f"Extracted action (pattern 2): step {step_num}, action: {action[:50]}")
         
         # Extract state traces
         if in_state_trace:
@@ -430,6 +431,8 @@ def extract_plan_section_steps(plan_text: str) -> List[Step]:
             section=f"Plan Step {step_num}"
         ))
     
+    if steps:
+        logger.info(f"✅ Extracted {len(steps)} steps from PLAN section")
     return steps
 
 
