@@ -58,6 +58,30 @@ PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "deep-research-467303")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 MODEL = os.getenv("PDDL_MODEL", "8060593410504916992")
 
+# Handle Google Cloud credentials from environment variable
+credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+if credentials_json:
+    import tempfile
+    try:
+        # Clean and extract JSON
+        credentials_json = credentials_json.strip()
+        start_idx = credentials_json.find('{')
+        end_idx = credentials_json.rfind('}')
+        if start_idx != -1 and end_idx != -1:
+            credentials_json = credentials_json[start_idx:end_idx+1]
+        
+        # Parse and write to file
+        credentials_dict = json.loads(credentials_json)
+        credentials_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json')
+        json.dump(credentials_dict, credentials_file, indent=2)
+        credentials_file.flush()
+        credentials_file.close()
+        
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_file.name
+        logger.info(f"✅ Google Cloud credentials loaded from environment variable")
+    except Exception as e:
+        logger.error(f"❌ Failed to setup credentials: {str(e)}")
+
 # Initialize Google Vertex AI client (will be initialized on first use if credentials are available)
 genai_client = None
 
