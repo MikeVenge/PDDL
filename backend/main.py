@@ -57,14 +57,20 @@ PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "deep-research-467303")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 MODEL = os.getenv("PDDL_MODEL", "projects/deep-research-467303/locations/us-central1/models/8060593410504916992")
 
-# Initialize Google Vertex AI client
+# Initialize Google Vertex AI client (will be initialized on first use if credentials are available)
 genai_client = None
-try:
-    genai_client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
-    logger.info(f"✅ Google Vertex AI client initialized for project {PROJECT_ID}")
-except Exception as e:
-    logger.error(f"❌ Failed to initialize Vertex AI client: {str(e)}")
-    genai_client = None
+
+def get_genai_client():
+    """Lazy initialization of genai client."""
+    global genai_client
+    if genai_client is None:
+        try:
+            genai_client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
+            logger.info(f"✅ Google Vertex AI client initialized for project {PROJECT_ID}")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize Vertex AI client: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to initialize Vertex AI client: {str(e)}")
+    return genai_client
 SYSTEM_PROMPT = """You are an expert planning assistant and PDDL engineer. Given a natural-language planning problem, you must:
 
 Understand & formalize the task (objects, initial state, goals, constraints, preferences).
@@ -748,8 +754,8 @@ def call_pddl_model(prompt: str, temperature: float, max_tokens: int) -> Dict[st
     logger.info(f"   Temperature: {temperature}, Max tokens: {max_tokens}")
     logger.info(f"   Prompt length: {len(prompt)} chars")
     
-    if genai_client is None:
-        raise HTTPException(status_code=500, detail="Google Vertex AI client not initialized")
+    # Get or initialize the client
+    client = get_genai_client()
     
     try:
         # Combine system prompt with user prompt
@@ -758,7 +764,7 @@ def call_pddl_model(prompt: str, temperature: float, max_tokens: int) -> Dict[st
         logger.info(f"🌐 Sending request to Google Vertex AI...")
         
         # Generate content using Vertex AI
-        resp = genai_client.models.generate_content(
+        resp = client.models.generate_content(
             model=MODEL,
             contents=full_prompt,
             config=GenerateContentConfig(
