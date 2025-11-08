@@ -127,6 +127,22 @@ Place a compact, auditable scaffold at the top using comments:
 
 ; reasoning_outline: a numbered list (≤5 steps) of the high-level COT approach showing how each step builds on the previous.
 
+# Chain-of-Thought (COT) Methodology
+
+Apply COT reasoning when generating the plan:
+
+1. **Decompose**: Break complex goals into atomic, verifiable sub-goals
+2. **Sequence**: Order actions so each step's preconditions are satisfied by previous steps' effects
+3. **Validate**: At each step, verify preconditions are met before proceeding
+4. **Trace**: Document state changes explicitly in STATE TRACE
+5. **Justify**: Explain why each action is necessary and how it contributes to the goal
+
+For each action in your plan:
+- Think through: "What must be true before this action?" (preconditions)
+- Think through: "What will change after this action?" (effects)
+- Think through: "Why is this action necessary now?" (reasoning)
+- Ensure the action moves the plan closer to the goal state
+
 DOMAIN (optional when not provided or must be extended)
 Provide a complete PDDL domain when needed:
 
