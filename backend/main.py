@@ -337,15 +337,102 @@ def parse_steps_from_plan(plan_text: str) -> List[Step]:
     )]
 
 
+def extract_meta_sections(lines: List[str]) -> Dict[str, str]:
+    """Extract META sections (data_needed, data_collation, reasoning_outline) from PDDL output."""
+    meta_sections = {
+        'data_needed': '',
+        'data_collation': '',
+        'reasoning_outline': ''
+    }
+    
+    current_section = None
+    section_lines = []
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Detect META section headers
+        if stripped.startswith('; data_needed:'):
+            if current_section and section_lines:
+                meta_sections[current_section] = '\n'.join(section_lines)
+            current_section = 'data_needed'
+            section_lines = []
+            continue
+        elif stripped.startswith('; data_collation:'):
+            if current_section and section_lines:
+                meta_sections[current_section] = '\n'.join(section_lines)
+            current_section = 'data_collation'
+            section_lines = []
+            continue
+        elif stripped.startswith('; reasoning_outline:'):
+            if current_section and section_lines:
+                meta_sections[current_section] = '\n'.join(section_lines)
+            current_section = 'reasoning_outline'
+            section_lines = []
+            continue
+        
+        # Stop collecting when we hit a non-comment line or new major section
+        if current_section:
+            if stripped.startswith(';') and not stripped.startswith('; PLAN') and not stripped.startswith('; STATE'):
+                # Remove leading ';' and whitespace
+                content = stripped[1:].strip()
+                if content:
+                    section_lines.append(content)
+            elif stripped.startswith('(define') or stripped == '':
+                # End of META section
+                if section_lines:
+                    meta_sections[current_section] = '\n'.join(section_lines)
+                current_section = None
+                section_lines = []
+    
+    # Save last section
+    if current_section and section_lines:
+        meta_sections[current_section] = '\n'.join(section_lines)
+    
+    return meta_sections
+
+
 def extract_plan_section_steps(plan_text: str) -> List[Step]:
     """
     Extract plan steps from the new system prompt format with ; PLAN section.
     Format: (; N) (action-name param1 param2...) or ; (N) (action-name...)
-    Also extracts corresponding STATE TRACE information if available.
+    Also extracts META sections (data_needed, data_collation, reasoning_outline) as reviewable steps.
     Includes full action definitions from DOMAIN section.
     """
     steps = []
     lines = plan_text.split('\n')
+    
+    # Extract META sections first
+    meta_sections = extract_meta_sections(lines)
+    step_counter = 1
+    
+    # Add META sections as reviewable steps
+    if 'data_needed' in meta_sections and meta_sections['data_needed']:
+        steps.append(Step(
+            step_id=f"meta-data-needed",
+            step_number=step_counter,
+            step_content=f"**Data Needed:**\n\n{meta_sections['data_needed']}",
+            section="META: Data Needed"
+        ))
+        step_counter += 1
+    
+    if 'data_collation' in meta_sections and meta_sections['data_collation']:
+        steps.append(Step(
+            step_id=f"meta-data-collation",
+            step_number=step_counter,
+            step_content=f"**Data Collation:**\n\n{meta_sections['data_collation']}",
+            section="META: Data Collation"
+        ))
+        step_counter += 1
+    
+    if 'reasoning_outline' in meta_sections and meta_sections['reasoning_outline']:
+        steps.append(Step(
+            step_id=f"meta-reasoning",
+            step_number=step_counter,
+            step_content=f"**Reasoning Outline:**\n\n{meta_sections['reasoning_outline']}",
+            section="META: Reasoning Outline"
+        ))
+        step_counter += 1
     
     # First pass: Extract action definitions from DOMAIN section
     action_definitions = {}  # action_name -> full definition
@@ -469,35 +556,36 @@ def extract_plan_section_steps(plan_text: str) -> List[Step]:
                 state_traces[step_num].append(trace_info)
     
     # Combine actions with their definitions and traces
-    for step_num in sorted(plan_actions.keys()):
-        action_call = plan_actions[step_num]
+    for original_step_num in sorted(plan_actions.keys()):
+        action_call = plan_actions[original_step_num]
         
         # Extract action name from the call
         action_name_match = re.match(r'\(([^\s\)]+)', action_call)
         action_name = action_name_match.group(1) if action_name_match else None
         
         # Build step content with action call
-        step_content = f"**Action {step_num}:**\n```lisp\n{action_call}\n```"
+        step_content = f"**Action Call:**\n```lisp\n{action_call}\n```"
         
         # Add full action definition from DOMAIN if available
         if action_name and action_name in action_definitions:
             step_content += f"\n\n**Action Definition:**\n```lisp\n{action_definitions[action_name]}\n```"
         
         # Add state trace if available
-        if step_num in state_traces:
+        if original_step_num in state_traces:
             step_content += "\n\n**State Trace:**\n"
-            for trace in state_traces[step_num]:
+            for trace in state_traces[original_step_num]:
                 step_content += f"- {trace}\n"
         
         steps.append(Step(
-            step_id=f"step-{step_num}",
-            step_number=step_num,
+            step_id=f"action-{original_step_num}",
+            step_number=step_counter,
             step_content=step_content.strip(),
-            section=f"Plan Step {step_num}"
+            section=f"Action Step {original_step_num}"
         ))
+        step_counter += 1
     
     if steps:
-        logger.info(f"✅ Extracted {len(steps)} steps from PLAN section with {len(action_definitions)} action definitions")
+        logger.info(f"✅ Extracted {len(steps)} total steps ({len(meta_sections)} META + {len(plan_actions)} actions) with {len(action_definitions)} action definitions")
     return steps
 
 
