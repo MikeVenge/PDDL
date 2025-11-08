@@ -402,37 +402,8 @@ def extract_plan_section_steps(plan_text: str) -> List[Step]:
     steps = []
     lines = plan_text.split('\n')
     
-    # Extract META sections first
+    # Extract META sections for context (but don't add as separate steps)
     meta_sections = extract_meta_sections(lines)
-    step_counter = 1
-    
-    # Add META sections as reviewable steps
-    if 'data_needed' in meta_sections and meta_sections['data_needed']:
-        steps.append(Step(
-            step_id=f"meta-data-needed",
-            step_number=step_counter,
-            step_content=f"**Data Needed:**\n\n{meta_sections['data_needed']}",
-            section="META: Data Needed"
-        ))
-        step_counter += 1
-    
-    if 'data_collation' in meta_sections and meta_sections['data_collation']:
-        steps.append(Step(
-            step_id=f"meta-data-collation",
-            step_number=step_counter,
-            step_content=f"**Data Collation:**\n\n{meta_sections['data_collation']}",
-            section="META: Data Collation"
-        ))
-        step_counter += 1
-    
-    if 'reasoning_outline' in meta_sections and meta_sections['reasoning_outline']:
-        steps.append(Step(
-            step_id=f"meta-reasoning",
-            step_number=step_counter,
-            step_content=f"**Reasoning Outline:**\n\n{meta_sections['reasoning_outline']}",
-            section="META: Reasoning Outline"
-        ))
-        step_counter += 1
     
     # First pass: Extract action definitions from DOMAIN section
     action_definitions = {}  # action_name -> full definition
@@ -556,36 +527,49 @@ def extract_plan_section_steps(plan_text: str) -> List[Step]:
                 state_traces[step_num].append(trace_info)
     
     # Combine actions with their definitions and traces
-    for original_step_num in sorted(plan_actions.keys()):
-        action_call = plan_actions[original_step_num]
+    for step_num in sorted(plan_actions.keys()):
+        action_call = plan_actions[step_num]
         
         # Extract action name from the call
         action_name_match = re.match(r'\(([^\s\)]+)', action_call)
         action_name = action_name_match.group(1) if action_name_match else None
         
-        # Build step content with action call
-        step_content = f"**Action Call:**\n```lisp\n{action_call}\n```"
+        # Build step content starting with META context if this is the first step
+        step_content = ""
+        
+        # Add META sections as context for the first step only
+        if step_num == 1:
+            if meta_sections.get('data_needed'):
+                step_content += f"**📋 Data Needed:**\n{meta_sections['data_needed']}\n\n"
+            if meta_sections.get('data_collation'):
+                step_content += f"**📊 Data Collation:**\n{meta_sections['data_collation']}\n\n"
+            if meta_sections.get('reasoning_outline'):
+                step_content += f"**🧠 Reasoning Outline:**\n{meta_sections['reasoning_outline']}\n\n"
+            if step_content:
+                step_content += "---\n\n"
+        
+        # Add action call
+        step_content += f"**Action Call:**\n```lisp\n{action_call}\n```"
         
         # Add full action definition from DOMAIN if available
         if action_name and action_name in action_definitions:
             step_content += f"\n\n**Action Definition:**\n```lisp\n{action_definitions[action_name]}\n```"
         
         # Add state trace if available
-        if original_step_num in state_traces:
+        if step_num in state_traces:
             step_content += "\n\n**State Trace:**\n"
-            for trace in state_traces[original_step_num]:
+            for trace in state_traces[step_num]:
                 step_content += f"- {trace}\n"
         
         steps.append(Step(
-            step_id=f"action-{original_step_num}",
-            step_number=step_counter,
+            step_id=f"step-{step_num}",
+            step_number=step_num,
             step_content=step_content.strip(),
-            section=f"Action Step {original_step_num}"
+            section=f"Plan Step {step_num}"
         ))
-        step_counter += 1
     
     if steps:
-        logger.info(f"✅ Extracted {len(steps)} total steps ({len(meta_sections)} META + {len(plan_actions)} actions) with {len(action_definitions)} action definitions")
+        logger.info(f"✅ Extracted {len(steps)} action steps with {len(action_definitions)} action definitions")
     return steps
 
 
