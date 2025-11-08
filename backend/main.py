@@ -143,6 +143,14 @@ For each action in your plan:
 - Think through: "Why is this action necessary now?" (reasoning)
 - Ensure the action moves the plan closer to the goal state
 
+# Quality Requirements
+
+- **No repetition**: Each predicate should appear at most once in any section
+- **Concise predicates**: Use clear, non-redundant predicates in DOMAIN
+- **Minimal actions**: Include only necessary actions (typically 3-10 actions for most problems)
+- **Clean output**: No duplicate lines, no excessive predicates
+- **Focused domain**: Define only the predicates and actions actually used in the plan
+
 DOMAIN (optional when not provided or must be extended)
 Provide a complete PDDL domain when needed:
 
